@@ -69,6 +69,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         config.delegateClass = SceneDelegate.self
         return config
     }
+
+    func applicationWillTerminate(_ application: UIApplication) {
+        CrashReporter.shared.onWillTerminate()
+        // [T-ios-bgactivitysession-leak] Retract the background location session
+        // + Live Activity on a clean exit so the system location indicator
+        // doesn't stay pinned to the Dynamic Island after the app is gone.
+        MainActor.assumeIsolated {
+            BackgroundKeepAliveManager.shared.prepareForTermination()
+        }
+    }
 }
 
 /// Receives Home Screen Quick Action events in a scene-based SwiftUI
@@ -159,16 +169,6 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
                     DeepLinkRouter.handle(url: url, shareCoordinator: coordinator)
                 }
             }
-        }
-    }
-
-    func applicationWillTerminate(_ application: UIApplication) {
-        CrashReporter.shared.onWillTerminate()
-        // [T-ios-bgactivitysession-leak] Retract the background location session
-        // + Live Activity on a clean exit so the system location indicator
-        // doesn't stay pinned to the Dynamic Island after the app is gone.
-        MainActor.assumeIsolated {
-            BackgroundKeepAliveManager.shared.prepareForTermination()
         }
     }
 }

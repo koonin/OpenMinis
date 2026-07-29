@@ -33,6 +33,7 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
     }
 
     private var launched = false
+    private let currentRunID = UUID().uuidString
 
     // MARK: - Log Ring Buffer
 
@@ -112,13 +113,23 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
 
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+        let observedAt = df.string(from: Date())
         marker["lastPhase"] = phase
-        marker["lastPhaseAt"] = df.string(from: Date())
+        marker["lastObservedAt"] = observedAt
+        // Legacy alias retained so markers remain readable across app-version
+        // rollbacks. New reports describe this as an observation time, never
+        // as the time the process terminated.
+        marker["lastPhaseAt"] = observedAt
         marker["memoryMB"] = currentMemoryMB()
-        marker["memoryFreeMB"] = systemFreeMB()
+        marker["processMemoryHeadroomMB"] = processMemoryHeadroomMB()
         marker["activeSessionCount"] = SessionActivityTracker.shared.activeSessions.count
         marker["runningShellCommand"] = ShellCommandRingBuffer.hasRunningCommand
-        marker["bgTaskActive"] = BackgroundKeepAliveManager.shared.isActive
+        let keepAliveRequested = BackgroundKeepAliveManager.shared.isActive
+        marker["bkaRequestedActive"] = keepAliveRequested
+        // Legacy alias for older readers. This has always represented BKA's
+        // logical request state, not a UIApplication background-task assertion.
+        marker["bgTaskActive"] = keepAliveRequested
+        marker["logLinesAtLastObservation"] = logRingSnapshot()
 
         let remaining = UIApplication.shared.backgroundTimeRemaining
         marker["bgTaskRemaining"] = remaining > 99999 ? -1 : remaining
@@ -201,7 +212,7 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         return 0
     }
 
-    private func systemFreeMB() -> Int {
+    private func processMemoryHeadroomMB() -> Int {
         return Int(os_proc_available_memory() / (1024 * 1024))
     }
 
@@ -218,13 +229,19 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         let now = df.string(from: Date())
 
         let marker: [String: Any] = [
+            "schemaVersion": 2,
+            "runID": currentRunID,
             "build": "\(version) (\(build))",
             "pid": pid,
             "launchedAt": now,
             "lastPhase": "active",
+            "lastObservedAt": now,
+            // Legacy alias; this is a lifecycle observation timestamp, not a
+            // crash timestamp.
             "lastPhaseAt": now,
             "memoryMB": currentMemoryMB(),
-            "memoryFreeMB": systemFreeMB()
+            "processMemoryHeadroomMB": processMemoryHeadroomMB(),
+            "logLinesAtLastObservation": logRingSnapshot()
         ]
 
         let url = launchMarkerURL
@@ -242,6 +259,7 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
     private func checkStaleMarker() {
         let url = launchMarkerURL
         guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let detectedAt = Date()
 
         var markerInfo: [String: Any]?
         if let data = try? Data(contentsOf: url),
@@ -250,12 +268,23 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         }
 
         let lastPhase = (markerInfo?["lastPhase"] as? String) ?? "unknown"
-        let lastPhaseAt = markerInfo?["lastPhaseAt"] as? String
+        let lastObservedAt = (markerInfo?["lastObservedAt"] as? String)
+            ?? (markerInfo?["lastPhaseAt"] as? String)
         let memoryMB = markerInfo?["memoryMB"] as? Int
-        let memoryFreeMB = markerInfo?["memoryFreeMB"] as? Int
+        // `memoryFreeMB` was the old, misleading name for the same
+        // os_proc_available_memory() value. Read it only as a compatibility
+        // fallback for markers written by older builds.
+        let processMemoryHeadroomMB = (markerInfo?["processMemoryHeadroomMB"] as? Int)
+            ?? (markerInfo?["memoryFreeMB"] as? Int)
         let markerBuild = markerInfo?["build"] as? String
-        let runningShell = markerInfo?["runningShellCommand"] as? Bool ?? false
-        let bgTaskActive = markerInfo?["bgTaskActive"] as? Bool ?? false
+        let previousRunID = markerInfo?["runID"] as? String
+        let previousPID = markerInfo?["pid"] as? Int
+        let previousLaunchedAt = markerInfo?["launchedAt"] as? String
+        let runningShellValue = markerInfo?["runningShellCommand"] as? Bool
+        let bkaRequestedActiveValue = (markerInfo?["bkaRequestedActive"] as? Bool)
+            ?? (markerInfo?["bgTaskActive"] as? Bool)
+        let runningShell = runningShellValue ?? false
+        let bkaRequestedActive = bkaRequestedActiveValue ?? false
         let bgTaskRemaining = markerInfo?["bgTaskRemaining"] as? Double
         let activeSessionCount = markerInfo?["activeSessionCount"] as? Int
         let bkaSilentAudioPlaying = markerInfo?["bkaSilentAudioPlaying"] as? Bool
@@ -269,53 +298,68 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         let webViewTotalTabs = markerInfo?["webViewTotalTabs"] as? Int
         let webViewGlobalCap = markerInfo?["webViewGlobalCap"] as? Int
         let webViewTabs = markerInfo?["webViewTabs"] as? [[String: Any]]
-        let memPressure: String = {
-            if let free = memoryFreeMB {
-                if free < 200 { return "critical" }
-                if free < 500 { return "warning" }
-            }
-            return "normal"
-        }()
+        let savedLogLines = markerInfo?["logLinesAtLastObservation"] as? [String]
+        let persistedCrashStack = try? String(contentsOf: Self.crashStackURL, encoding: .utf8)
+        let persistedHangSnapshot = try? String(contentsOf: Self.hangSnapshotURL, encoding: .utf8)
+        let hasCrashHandlerEvidence = !(persistedCrashStack?.isEmpty ?? true)
+        let hasHangDetectorEvidence = !(persistedHangSnapshot?.isEmpty ?? true)
 
-        let crashType: String
-        if lastPhase == "active" || lastPhase == "inactive" {
-            if runningShell {
-                crashType = "⚠️ FOREGROUND CRASH during shell execution"
-            } else if let mem = memoryMB, mem >= 350 {
-                crashType = "⚠️ FOREGROUND CRASH (high memory: \(mem)MB)"
-            } else {
-                crashType = "⚠️ FOREGROUND CRASH (SIGKILL — app was in use)"
-            }
-        } else if lastPhase == "background" {
-            if let rem = bgTaskRemaining, rem > 0 && rem < 5 {
-                crashType = "Background Task Timeout (task expired with \(String(format: "%.1f", rem))s left)"
-            } else if let mem = memoryMB, mem >= 300 {
-                crashType = "Background Jetsam (high memory: \(mem)MB)"
-            } else if let free = memoryFreeMB, free < 500 {
-                crashType = "Background Jetsam (system memory pressure)"
-            } else {
-                crashType = "Background Termination (system reclaimed memory — normal)"
-            }
-        } else {
-            crashType = "Unknown Termination"
+        // A stale marker proves only that the previous run did not execute its
+        // cleanup hook. When every persisted background-work signal explicitly
+        // says "idle", normal OS process reclamation is expected and should not
+        // be surfaced to the user as a crash. Require every field so an older or
+        // incomplete marker is never silently discarded.
+        let explicitlyIdleBackground =
+            lastPhase == "background"
+            && activeSessionCount == 0
+            && runningShellValue == false
+            && bkaRequestedActiveValue == false
+            && bkaSilentAudioPlaying == false
+            && bkaAudioSessionActive == false
+            && bkaStopDebouncePending == false
+            && webViewTotalTabs == 0
+
+        if explicitlyIdleBackground && !hasCrashHandlerEvidence && !hasHangDetectorEvidence {
+            logger.info(
+                "Stale launch marker ignored: previous run was explicitly idle in background; "
+                + "no persisted crash or hang evidence"
+            )
+            return
         }
 
-        logger.warning("Stale launch marker found — previous exit was abnormal: phase=\(lastPhase)")
+        let reportType: String
+        if hasCrashHandlerEvidence {
+            reportType = "Signal/Exception Crash (persisted crash-handler evidence)"
+        } else if hasHangDetectorEvidence {
+            reportType = "Unclassified Previous-Run Termination (persisted hang evidence; OS cause unknown)"
+        } else {
+            reportType = "Unclassified Previous-Run Termination (cause unknown — stale launch marker only)"
+        }
+
+        logger.warning(
+            "Stale launch marker found: phase=\(lastPhase); "
+            + "termination cause \(hasCrashHandlerEvidence ? "has crash-handler evidence" : "unknown")"
+        )
 
         let savedShellCommands = (markerInfo?["shellCommands"] as? [[String: Any]]) ?? []
 
         writeReport(
-            type: crashType,
+            origin: .staleLaunchMarker,
+            type: reportType,
             callStack: nil,
             savedShellCommands: savedShellCommands,
+            savedLogLines: savedLogLines,
+            detectedAt: detectedAt,
+            previousRunID: previousRunID,
+            previousPID: previousPID,
+            previousLaunchedAt: previousLaunchedAt,
             lastPhase: lastPhase,
-            lastPhaseAt: lastPhaseAt,
+            lastObservedAt: lastObservedAt,
             memoryMB: memoryMB,
-            memoryFreeMB: memoryFreeMB,
-            memoryPressure: memPressure,
+            processMemoryHeadroomMB: processMemoryHeadroomMB,
             activeSessionCount: activeSessionCount,
             runningShellCommand: runningShell,
-            bgTaskActive: bgTaskActive,
+            bkaRequestedActive: bkaRequestedActive,
             bgTaskRemaining: bgTaskRemaining,
             lastAPIProvider: lastAPIProvider,
             lastAPIModel: lastAPIModel,
@@ -426,18 +470,28 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
 
     // MARK: - Report Writing
 
+    private enum ReportOrigin {
+        case staleLaunchMarker
+        case metricKit
+    }
+
     private func writeReport(
+        origin: ReportOrigin = .metricKit,
         type: String,
         callStack: String?,
         savedShellCommands: [[String: Any]] = [],
+        savedLogLines: [String]? = nil,
+        detectedAt: Date? = nil,
+        previousRunID: String? = nil,
+        previousPID: Int? = nil,
+        previousLaunchedAt: String? = nil,
         lastPhase: String? = nil,
-        lastPhaseAt: String? = nil,
+        lastObservedAt: String? = nil,
         memoryMB: Int? = nil,
-        memoryFreeMB: Int? = nil,
-        memoryPressure: String? = nil,
+        processMemoryHeadroomMB: Int? = nil,
         activeSessionCount: Int? = nil,
         runningShellCommand: Bool = false,
-        bgTaskActive: Bool = false,
+        bkaRequestedActive: Bool = false,
         bgTaskRemaining: Double? = nil,
         lastAPIProvider: String? = nil,
         lastAPIModel: String? = nil,
@@ -456,20 +510,22 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         let dir = crashReportsDir
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        let now = Date()
+        // For stale-marker reports this is when the marker was detected, not
+        // when the previous process ended. MetricKit does not provide an event
+        // timestamp here either, so its reports use payload-receipt time.
+        let reportDate = detectedAt ?? Date()
+        let persistedCrashStack =
+            (try? String(contentsOf: Self.crashStackURL, encoding: .utf8)) ?? ""
+        let persistedHangSnapshot =
+            (try? String(contentsOf: Self.hangSnapshotURL, encoding: .utf8)) ?? ""
         let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
 
-        let crashDate: Date
-        if let ts = lastPhaseAt {
-            let inputDf = DateFormatter()
-            inputDf.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
-            crashDate = inputDf.date(from: ts) ?? now
-        } else {
-            crashDate = now
-        }
-
-        df.dateFormat = "yyyyMMdd-HHmmss"
-        let filename = "crash-\(df.string(from: crashDate)).log"
+        // MetricKit may deliver multiple diagnostics together, and a stale
+        // marker report can be generated in the same instant on launch. Keep
+        // filenames time-sortable while guaranteeing that none overwrite.
+        df.dateFormat = "yyyyMMdd-HHmmss-SSS"
+        let filename = "crash-\(df.string(from: reportDate))-\(UUID().uuidString.prefix(8)).log"
 
         let info = Bundle.main.infoDictionary
         let version = (info?["CFBundleShortVersionString"] as? String) ?? "?"
@@ -483,53 +539,77 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
             $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(cString: $0) }
         }
 
-        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let dateStr = df.string(from: crashDate)
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
+        let dateStr = df.string(from: reportDate)
+        let dateMeaning: String
+        switch origin {
+        case .staleLaunchMarker:
+            dateMeaning = "stale marker detected / report generated"
+        case .metricKit:
+            dateMeaning = "MetricKit payload received / report generated"
+        }
 
         var report = """
         === Minis Crash Report ===
-        Date:    \(dateStr)
+        Date:    \(dateStr) (\(dateMeaning))
         Type:    \(type)
         Build:   \(displayBuild)
         OS:      \(osVersion)
         Device:  \(deviceModel)
+        Reporting Run ID: \(currentRunID)
         """
 
-        if let phase = lastPhase {
-            var phaseTime = ""
-            if let ts = lastPhaseAt {
-                let inputDf = DateFormatter()
-                inputDf.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
-                if let date = inputDf.date(from: ts) {
-                    let timeDf = DateFormatter()
-                    timeDf.dateFormat = "HH:mm:ss"
-                    phaseTime = " (since \(timeDf.string(from: date)))"
-                }
+        if case .staleLaunchMarker = origin {
+            if let runID = previousRunID {
+                report += "\nPrevious Run ID:  \(runID)"
+            } else {
+                report += "\nPrevious Run ID:  unavailable (legacy marker)"
             }
-            report += "\nLast Phase:  \(phase)\(phaseTime)"
+            if let pid = previousPID {
+                report += "\nPrevious PID:     \(pid)"
+            }
+            if let launchedAt = previousLaunchedAt {
+                report += "\nPrevious Launch:  \(launchedAt)"
+            }
+            if let observedAt = lastObservedAt {
+                report += "\nLast Observed:    \(observedAt) (saved lifecycle snapshot; not termination time)"
+            } else {
+                report += "\nLast Observed:    unavailable (termination time unknown)"
+            }
+            if !persistedCrashStack.isEmpty && !persistedHangSnapshot.isEmpty {
+                report += "\nEvidence:         stale marker + persisted signal/exception stack + hang snapshot"
+            } else if !persistedCrashStack.isEmpty {
+                report += "\nEvidence:         stale launch marker + persisted signal/exception stack"
+            } else if !persistedHangSnapshot.isEmpty {
+                report += "\nEvidence:         stale launch marker + persisted HangDetector snapshot"
+            } else {
+                report += "\nEvidence:         stale launch marker only"
+            }
+            report += "\nOS Exit Reason:   unavailable"
+        }
+
+        if let phase = lastPhase {
+            report += "\nLast Phase:       \(phase)"
         }
 
         if let mem = memoryMB {
-            report += "\nMemory:      \(mem) MB"
+            report += "\nMemory:           \(mem) MB (at last observation)"
         }
 
         // Memory State section
-        if memoryMB != nil || memoryFreeMB != nil || activeSessionCount != nil {
-            report += "\n\n--- Memory State (at last phase change) ---"
+        if memoryMB != nil || processMemoryHeadroomMB != nil || activeSessionCount != nil {
+            report += "\n\n--- Memory State (at last observation) ---"
             if let mem = memoryMB {
                 report += "\nApp footprint:    \(mem) MB"
             }
-            if let free = memoryFreeMB {
-                report += "\nSystem free:      \(free) MB"
-            }
-            if let pressure = memoryPressure {
-                report += "\nMemory pressure:  \(pressure)"
+            if let headroom = processMemoryHeadroomMB {
+                report += "\nProcess memory headroom: \(headroom) MB"
             }
             if let sessions = activeSessionCount {
                 report += "\nActive sessions:  \(sessions)"
             }
             report += "\nShell running:    \(runningShellCommand ? "yes" : "no")"
-            report += "\nBG task active:   \(bgTaskActive)"
+            report += "\nBackground keep-alive requested: \(bkaRequestedActive ? "yes" : "no")"
             if let rem = bgTaskRemaining {
                 if rem < 0 {
                     report += "\nBG time remaining: unlimited"
@@ -537,7 +617,8 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
                     report += "\nBG time remaining: \(String(format: "%.1f", rem))s"
                 }
             }
-            // [T-bg-keepalive-debounce] BackgroundKeepAlive audio state at crash.
+            // [T-bg-keepalive-debounce] BackgroundKeepAlive audio state at
+            // the last persisted lifecycle observation.
             if let playing = bkaSilentAudioPlaying {
                 report += "\nSilent audio playing: \(playing ? "yes" : "no")"
             }
@@ -564,7 +645,7 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         }
 
         // WebView section
-        report += "\n\n--- Active WebViews (at last phase change) ---\n"
+        report += "\n\n--- Active WebViews (at last observation) ---\n"
         if let total = webViewTotalTabs, let cap = webViewGlobalCap {
             report += "Total tabs: \(total) / \(cap) (global cap)\n"
         }
@@ -594,7 +675,12 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
             report += "(no active WebViews)\n"
         }
 
-        report += "\n--- Last Shell Commands (before exit) ---\n"
+        switch origin {
+        case .staleLaunchMarker:
+            report += "\n--- Shell Commands (saved at last observation) ---\n"
+        case .metricKit:
+            report += "\n--- Shell Commands (reporting process snapshot) ---\n"
+        }
 
         if savedShellCommands.isEmpty {
             report += "(none recorded)\n"
@@ -614,33 +700,52 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
             }
         }
 
-        let logLines = logRingSnapshot()
-        report += "\n--- Last \(logLines.count) Log Lines (before exit) ---\n"
-        if logLines.isEmpty {
-            report += "(none recorded)\n"
-        } else {
-            for line in logLines {
-                report += "\(line)\n"
+        switch origin {
+        case .staleLaunchMarker:
+            report += "\n--- Log Lines (saved at last observation) ---\n"
+            if let savedLogLines {
+                if savedLogLines.isEmpty {
+                    report += "(none recorded)\n"
+                } else {
+                    for line in savedLogLines {
+                        report += "\(line)\n"
+                    }
+                }
+            } else {
+                report += "(unavailable in legacy marker; current run's in-memory logs omitted)\n"
+            }
+        case .metricKit:
+            let currentLogLines = logRingSnapshot()
+            report += "\n--- Recent \(currentLogLines.count) Log Lines (reporting process) ---\n"
+            if currentLogLines.isEmpty {
+                report += "(none recorded)\n"
+            } else {
+                for line in currentLogLines {
+                    report += "\(line)\n"
+                }
             }
         }
 
-        let hangSnapshot = (try? String(contentsOf: Self.hangSnapshotURL, encoding: .utf8)) ?? ""
-        if !hangSnapshot.isEmpty {
-            report += "\n--- Last HangDetector Stacks (before exit) ---\n"
-            report += hangSnapshot + "\n"
+        if !persistedHangSnapshot.isEmpty {
+            report += "\n--- Persisted HangDetector Stacks ---\n"
+            report += persistedHangSnapshot + "\n"
         }
 
-        let crashStack = (try? String(contentsOf: Self.crashStackURL, encoding: .utf8)) ?? ""
-        if !crashStack.isEmpty {
+        if !persistedCrashStack.isEmpty {
             report += "\n--- Signal/Exception Crash Stack ---\n"
-            report += crashStack + "\n"
+            report += persistedCrashStack + "\n"
         }
 
         report += "\n--- MetricKit Call Stack ---\n"
         if let stack = callStack {
             report += stack + "\n"
         } else {
-            report += "(none — SIGKILL has no stack)\n"
+            switch origin {
+            case .staleLaunchMarker:
+                report += "(none delivered; a stale marker alone does not identify the termination cause)\n"
+            case .metricKit:
+                report += "(none available in the received diagnostic)\n"
+            }
         }
         report += "\n=== End ===\n"
 

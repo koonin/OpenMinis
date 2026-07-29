@@ -39,9 +39,27 @@ final class AudioSessionCoordinator {
 
     private let logger = AppLogger(category: "AudioSession")
     private var active: Set<Intent> = []
+    /// `sessionActive` tracks whether the process still owns AVAudioSession.
+    /// A failed profile application leaves the previous session potentially
+    /// active, but it must not be treated as healthy until a later apply
+    /// succeeds.
+    private var sessionNeedsReassertion = false
 
     /// True while the mic is capturing — reply TTS is suppressed in this state.
     var isCapturing: Bool { active.contains(.capture) }
+
+    /// Runtime health of the background keep-alive intent. Merely finding the
+    /// intent in `active` is insufficient: iOS may have deactivated the session,
+    /// or the most recent profile application may have failed.
+    var hasBackgroundKeepAliveIntent: Bool {
+        active.contains(.backgroundKeepAlive)
+    }
+
+    var backgroundKeepAliveIsActive: Bool {
+        hasBackgroundKeepAliveIntent
+            && sessionActive
+            && !sessionNeedsReassertion
+    }
 
     // MARK: - Public API
 
@@ -53,7 +71,8 @@ final class AudioSessionCoordinator {
     static let systemMusicWillPlayNotification = Notification.Name("OpenMinis.SystemMusicWillPlay")
 
     /// Declare that `intent` now needs the audio session. Idempotent.
-    func begin(_ intent: Intent) {
+    @discardableResult
+    func begin(_ intent: Intent) -> Bool {
         // Media attachment preempts reply TTS (mutually exclusive voice content):
         // stop the cloud queue directly and notify the chat VM to stop System TTS,
         // BEFORE media takes the session. (TTS is not auto-resumed afterwards.)
@@ -63,9 +82,10 @@ final class AudioSessionCoordinator {
         }
         let was = highest
         active.insert(intent)
-        if highest != was || !sessionActive {
-            apply(reason: "begin(\(intent))")
+        if highest != was || !sessionActive || sessionNeedsReassertion {
+            return apply(reason: "begin(\(intent))") == nil
         }
+        return true
     }
 
     /// Declare that `intent` no longer needs the session.
@@ -75,11 +95,14 @@ final class AudioSessionCoordinator {
         apply(reason: "end(\(intent))")
     }
 
-    /// Re-assert the correct session on foreground return (the stale-category fix)
-    /// and stop the background keep-alive track (not needed in foreground).
+    /// Re-assert the correct session on foreground return (the stale-category
+    /// fix). Intent ownership remains with each subsystem: in particular,
+    /// BackgroundKeepAliveManager may deliberately debounce its foreground stop
+    /// so a rapid foreground→background blip does not lose the audio survival
+    /// leg. Removing its intent here created split-brain state where its engine
+    /// flag remained true but the coordinator had already released the session.
     func reassertForForeground() {
-        active.remove(.backgroundKeepAlive)
-        apply(reason: "foreground")
+        _ = apply(reason: "foreground")
     }
 
     /// Acquire the app audio session for MediaPlayer's application queue
@@ -150,6 +173,7 @@ final class AudioSessionCoordinator {
                 sessionActive = false
                 logger.info("[AudioSession] \(reason) → idle, deactivated")
             }
+            sessionNeedsReassertion = false
             return nil
         }
         let (cat, mode, opts) = profile(for: top)
@@ -166,9 +190,11 @@ final class AudioSessionCoordinator {
                 try session.setActive(true)
                 sessionActive = true
             }
+            sessionNeedsReassertion = false
             logger.info("[AudioSession] \(reason) → \(top) (\(cat.rawValue)/\(mode.rawValue)) active")
             return nil
         } catch {
+            sessionNeedsReassertion = true
             logger.error("[AudioSession] \(reason) apply failed: \(error.localizedDescription)")
             return error
         }
@@ -279,6 +305,7 @@ final class AudioSessionCoordinator {
         case .began:
             logger.info("[AudioSession] interruption began")
             sessionActive = false   // system deactivated us
+            sessionNeedsReassertion = true
             // Previously we only flagged the session inactive; the TTS queue
             // kept "playing" into a dead session. Pause it so the queue
             // survives and can resume when the interruption ends.

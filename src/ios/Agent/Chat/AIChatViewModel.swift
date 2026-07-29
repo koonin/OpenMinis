@@ -1990,6 +1990,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     var currentTask: Task<Void, Never>?
     var compactTask: Task<Void, Never>?
     var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    /// Logical completion funnel for the current processing cycle. This is
+    /// deliberately independent of `backgroundTaskID`: iOS can expire and
+    /// require us to end the finite assertion while audio/location keeps the
+    /// agent alive long enough to finish normally.
+    var backgroundProcessingCompletionPending = false
     /// Tracks how many blocks on the current assistant message have been fully committed
     /// to agentHistory. Used by retry()/resume() to trim partial iteration content.
     var committedBlockCount: Int = 0
