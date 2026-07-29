@@ -19,6 +19,7 @@ extern NSString *const NOFF_ERR_NOT_AVAILABLE;
 extern NSString *const NOFF_ERR_INVALID_ARGS;
 extern NSString *const NOFF_ERR_NO_DATA;
 extern NSString *const NOFF_ERR_INTERNAL_ERROR;
+extern NSString *const NOFF_ERR_TIMEOUT;
 
 // ── Exit codes ──
 enum {

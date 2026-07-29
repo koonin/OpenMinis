@@ -19,6 +19,7 @@ NSString *const NOFF_ERR_NOT_AVAILABLE              = @"not_available";
 NSString *const NOFF_ERR_INVALID_ARGS               = @"invalid_args";
 NSString *const NOFF_ERR_NO_DATA                    = @"no_data";
 NSString *const NOFF_ERR_INTERNAL_ERROR             = @"internal_error";
+NSString *const NOFF_ERR_TIMEOUT                    = @"timeout";
 
 // ── Argument helpers ──
 

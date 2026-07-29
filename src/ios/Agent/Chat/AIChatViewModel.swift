@@ -429,6 +429,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 if self.speechSynthesizer.isSpeaking {
                     self.speechSynthesizer.stopSpeaking(at: .immediate)
                 }
+                AudioSessionCoordinator.shared.end(.replyTTS)
                 self.isReadingAloud = false
                 self.speechPaused = false
             }
@@ -1211,7 +1212,17 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     // MARK: - Speech
 
     private let speechSynthesizer = AVSpeechSynthesizer()
-    private lazy var speechDelegate = SpeechFinishedDelegate()
+    private lazy var speechDelegate: SpeechFinishedDelegate = {
+        let delegate = SpeechFinishedDelegate()
+        delegate.onQueueDrained = { [weak self] in
+            AudioSessionCoordinator.shared.end(.replyTTS)
+            guard let self else { return }
+            self.isReadingAloud = false
+            self.speechPaused = false
+            self.syncSpeechStateToGlobal()
+        }
+        return delegate
+    }()
     /// True when speech is paused (not stopped). Toggled by the floating speech button.
     @Published var speechPaused = false
 
@@ -1365,16 +1376,17 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         guard canSpeakNow, !text.isEmpty else { return }
         isReadingAloud = true
         syncSpeechStateToGlobal(registerActive: true)
-        // Reply TTS (System + cloud are the SAME source/intent) — declare it once
-        // up front; the resolved provider then picks the engine.
-        AudioSessionCoordinator.shared.begin(.replyTTS)
         if useCloudTTS {
+            // Cloud playback acquires the reply-TTS intent only after synthesized
+            // audio is ready. Acquiring here leaked the session when every
+            // synthesis candidate failed.
             VoiceOutputPlayer.shared.enqueue(text, sessionId: sessionId ?? "")
             return
         }
+        AudioSessionCoordinator.shared.begin(.replyTTS)
+        speechSynthesizer.delegate = speechDelegate
         if BackgroundKeepAliveManager.shared.backgroundSpeakEnabled {
             BackgroundKeepAliveManager.shared.stopSilentAudio()
-            speechSynthesizer.delegate = speechDelegate
         }
         if speechSynthesizer.isSpeaking {
             speechSynthesizer.stopSpeaking(at: .word)
@@ -1495,14 +1507,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         }
         isReadingAloud = true
         syncSpeechStateToGlobal(registerActive: true)
-        AudioSessionCoordinator.shared.begin(.replyTTS)
         if useCloudTTS {
+            // VoiceOutputPlayer acquires the intent immediately before playback.
             VoiceOutputPlayer.shared.enqueue(text, sessionId: sessionId ?? "")
             return
         }
+        AudioSessionCoordinator.shared.begin(.replyTTS)
+        speechSynthesizer.delegate = speechDelegate
         if BackgroundKeepAliveManager.shared.backgroundSpeakEnabled {
             BackgroundKeepAliveManager.shared.stopSilentAudio()
-            speechSynthesizer.delegate = speechDelegate
         }
         let utterance = makeUtterance(text)
         speechSynthesizer.speak(utterance)  // queues automatically, does NOT interrupt
@@ -5827,4 +5840,3 @@ enum LLMProviderError: LocalizedError {
         }
     }
 }
-

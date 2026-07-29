@@ -14,6 +14,7 @@ import UIKit
 // Audio sources → intents (System TTS and cloud TTS are the SAME `replyTTS`
 // source, just different engines resolved from the Voice Output group):
 //   .capture            — mic recording (.record/.measurement)            [highest]
+//   .applicationMusic   — apple-media applicationQueuePlayer
 //   .mediaAttachment    — Markdown audio attachment / auto_play playback
 //   .replyTTS           — read-replies (cloud VoiceOutputPlayer OR System AVSpeech)
 //   .backgroundKeepAlive— silent keep-alive track (background only)        [lowest]
@@ -32,7 +33,8 @@ final class AudioSessionCoordinator {
         case backgroundKeepAlive = 0
         case replyTTS = 1
         case mediaAttachment = 2
-        case capture = 3
+        case applicationMusic = 3
+        case capture = 4
     }
 
     private let logger = AppLogger(category: "AudioSession")
@@ -46,6 +48,9 @@ final class AudioSessionCoordinator {
     /// Posted when a media attachment preempts reply TTS — the active chat VM stops
     /// its System AVSpeechSynthesizer in response (cloud TTS is stopped directly).
     static let replyTTSPreemptedNotification = Notification.Name("AudioSession.replyTTSPreempted")
+    /// Posted by apple-media immediately before it gives the queue to the system
+    /// Music player. App-owned audible playback must release its session first.
+    static let systemMusicWillPlayNotification = Notification.Name("OpenMinis.SystemMusicWillPlay")
 
     /// Declare that `intent` now needs the audio session. Idempotent.
     func begin(_ intent: Intent) {
@@ -77,6 +82,43 @@ final class AudioSessionCoordinator {
         apply(reason: "foreground")
     }
 
+    /// Acquire the app audio session for MediaPlayer's application queue
+    /// player. Unlike `systemMusicPlayer`, this player renders inside Minis,
+    /// so releasing the app session immediately before `play()` is backwards.
+    ///
+    /// Returns a user-facing error string so the Objective-C native offload can
+    /// fail before touching MediaPlayer when the session cannot be activated.
+    func beginApplicationMusic() -> String? {
+        guard !active.contains(.capture) else {
+            return "Cannot start Apple Music while the microphone is recording."
+        }
+
+        // Install the new highest-priority owner before stopping the old
+        // engines. Their idempotent end() calls then cannot transiently
+        // deactivate AVAudioSession between preemption and music startup.
+        active.remove(.backgroundKeepAlive)
+        active.remove(.replyTTS)
+        active.remove(.mediaAttachment)
+        active.insert(.applicationMusic)
+
+        VoiceOutputPlayer.shared.stopAll()
+        NotificationCenter.default.post(
+            name: Self.replyTTSPreemptedNotification,
+            object: nil)
+        GlobalAudioPlayer.shared.stop()
+
+        if let error = apply(reason: "begin(applicationMusic)") {
+            active.remove(.applicationMusic)
+            _ = apply(reason: "rollback(applicationMusic)")
+            return "Unable to activate the app audio session: \(error.localizedDescription)"
+        }
+        return nil
+    }
+
+    func endApplicationMusic() {
+        end(.applicationMusic)
+    }
+
     // MARK: - Core (the ONLY setCategory/setActive site)
 
     private var sessionActive = false
@@ -91,12 +133,15 @@ final class AudioSessionCoordinator {
             return (.playback, .default, [.duckOthers])
         case .replyTTS:
             return (.playback, .spokenAudio, [.duckOthers])
+        case .applicationMusic:
+            return (.playback, .default, [])
         case .backgroundKeepAlive:
             return (.playback, .default, [.mixWithOthers])
         }
     }
 
-    private func apply(reason: String) {
+    @discardableResult
+    private func apply(reason: String) -> Error? {
         let session = AVAudioSession.sharedInstance()
         guard let top = highest else {
             // Nothing needs audio — release the session.
@@ -105,7 +150,7 @@ final class AudioSessionCoordinator {
                 sessionActive = false
                 logger.info("[AudioSession] \(reason) → idle, deactivated")
             }
-            return
+            return nil
         }
         let (cat, mode, opts) = profile(for: top)
         // FULL compare (category + mode + options), not just category — a partial
@@ -122,8 +167,10 @@ final class AudioSessionCoordinator {
                 sessionActive = true
             }
             logger.info("[AudioSession] \(reason) → \(top) (\(cat.rawValue)/\(mode.rawValue)) active")
+            return nil
         } catch {
             logger.error("[AudioSession] \(reason) apply failed: \(error.localizedDescription)")
+            return error
         }
     }
 
@@ -166,6 +213,26 @@ final class AudioSessionCoordinator {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleRouteChange(_:)),
             name: AVAudioSession.routeChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleSystemMusicWillPlay(_:)),
+            name: Self.systemMusicWillPlayNotification, object: nil)
+    }
+
+    @objc private func handleSystemMusicWillPlay(_ note: Notification) {
+        // Stop both reply engines and any local attachment before Apple Music
+        // prepares its queue. The direct active-set cleanup is intentional:
+        // it also recovers a stale intent left by an already-destroyed chat VM.
+        VoiceOutputPlayer.shared.stopAll()
+        NotificationCenter.default.post(
+            name: Self.replyTTSPreemptedNotification,
+            object: nil)
+        GlobalAudioPlayer.shared.stop()
+        let removedTTS = active.remove(.replyTTS) != nil
+        let removedMedia = active.remove(.mediaAttachment) != nil
+        let removedApplicationMusic = active.remove(.applicationMusic) != nil
+        if removedTTS || removedMedia || removedApplicationMusic {
+            apply(reason: "system-music-will-play")
+        }
     }
 
     @objc private func handleRouteChange(_ note: Notification) {
@@ -239,5 +306,28 @@ final class AudioSessionCoordinator {
         @unknown default:
             break
         }
+    }
+}
+
+/// Objective-C bridge used by in-process native offloads. Keeping capture
+/// ownership here prevents apple-speech from overwriting AVAudioSession behind
+/// the coordinator's back.
+@MainActor
+@objc public final class AudioSessionOffloadBridge: NSObject {
+    @objc public static func beginCapture() {
+        AudioSessionCoordinator.shared.begin(.capture)
+    }
+
+    @objc public static func endCapture() {
+        AudioSessionCoordinator.shared.end(.capture)
+    }
+
+    /// Returns nil on success or a user-facing error on failure.
+    @objc public static func beginApplicationMusic() -> String? {
+        AudioSessionCoordinator.shared.beginApplicationMusic()
+    }
+
+    @objc public static func endApplicationMusic() {
+        AudioSessionCoordinator.shared.endApplicationMusic()
     }
 }

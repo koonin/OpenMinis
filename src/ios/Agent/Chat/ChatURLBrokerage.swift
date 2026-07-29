@@ -8,13 +8,32 @@ private let logger = AppLogger(category: "AIChatVM")
 /// Restarts silent audio keep-alive after TTS finishes speaking,
 /// so the background audio session stays active between utterances.
 final class SpeechFinishedDelegate: NSObject, AVSpeechSynthesizerDelegate {
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in
+    var onQueueDrained: (@MainActor () -> Void)?
+
+    private func handleTerminalCallback(_ synthesizer: AVSpeechSynthesizer) {
+        Task { @MainActor [weak synthesizer] in
+            // didFinish/didCancel fires once per utterance. Yield one main-loop
+            // turn so AVSpeechSynthesizer advances a queued next utterance before
+            // deciding that the whole queue is drained.
+            await Task.yield()
+            guard let synthesizer,
+                  !synthesizer.isSpeaking,
+                  !synthesizer.isPaused else { return }
+
+            onQueueDrained?()
             let mgr = BackgroundKeepAliveManager.shared
             if mgr.backgroundSpeakEnabled && mgr.isActive {
                 mgr.evaluateSilentAudioFromDelegate()
             }
         }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        handleTerminalCallback(synthesizer)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        handleTerminalCallback(synthesizer)
     }
 }
 

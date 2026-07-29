@@ -61,6 +61,9 @@ class GlobalAudioPlayer: ObservableObject {
     private var player: AVAudioPlayer?
     private var timer: Timer?
     private var seekWorkItem: DispatchWorkItem?
+    private var loadGeneration: UInt = 0
+    private var mediaIntentHeld = false
+    private var silentAudioSuspended = false
 
     /// Whether the given URL is the currently active audio file.
     func isActive(url: URL) -> Bool {
@@ -81,24 +84,16 @@ class GlobalAudioPlayer: ObservableObject {
         }
         // Stop any current playback
         stopInternal()
-        // Suspend silent audio so media gets full volume
-        let preCount = BackgroundKeepAliveManager.shared.silentAudioSuspendCount
-        logger.info("[AudioPlayback] play: url=\(url.lastPathComponent) suspendSilentAudio → count will be \(preCount + 1)")
-        BackgroundKeepAliveManager.shared.suspendSilentAudioForMedia()
+        let generation = loadGeneration
         // Load new file
         let loadURL = url
         Task.detached(priority: .userInitiated) {
-            guard let p = try? AVAudioPlayer(contentsOf: loadURL) else {
-                await MainActor.run {
-                    BackgroundKeepAliveManager.shared.resumeSilentAudioForMedia()
-                }
-                return
-            }
+            guard let p = try? AVAudioPlayer(contentsOf: loadURL) else { return }
             p.prepareToPlay()
             p.enableRate = true
             let dur = p.duration
             await MainActor.run { [weak self] in
-                guard let self else { return }
+                guard let self, generation == self.loadGeneration else { return }
                 self.player = p
                 self.activeFileURL = loadURL
                 self.fileName = loadURL.deletingPathExtension().lastPathComponent
@@ -108,10 +103,14 @@ class GlobalAudioPlayer: ObservableObject {
                 self.rate = 1.0
                 // Start playing immediately. Declaring `.mediaAttachment` preempts
                 // reply TTS (mutually exclusive) and applies the playback profile.
-                AudioSessionCoordinator.shared.begin(.mediaAttachment)
-                p.play()
-                self.isPlaying = true
-                self.startTimer()
+                self.acquirePlaybackResources()
+                if p.play() {
+                    self.isPlaying = true
+                    self.startTimer()
+                } else {
+                    logger.error("[AudioPlayback] AVAudioPlayer refused to start \(loadURL.lastPathComponent)")
+                    self.stopInternal()
+                }
             }
         }
     }
@@ -122,12 +121,17 @@ class GlobalAudioPlayer: ObservableObject {
             p.pause()
             isPlaying = false
             timer?.invalidate()
+            releasePlaybackResources()
         } else {
-            AudioSessionCoordinator.shared.begin(.mediaAttachment)
-            p.play()
-            p.rate = rate
-            isPlaying = true
-            startTimer()
+            acquirePlaybackResources()
+            if p.play() {
+                p.rate = rate
+                isPlaying = true
+                startTimer()
+            } else {
+                releasePlaybackResources()
+                isPlaying = false
+            }
         }
     }
 
@@ -178,7 +182,7 @@ class GlobalAudioPlayer: ObservableObject {
     }
 
     private func stopInternal() {
-        let wasLoaded = isLoaded
+        loadGeneration &+= 1
         timer?.invalidate()
         timer = nil
         player?.stop()
@@ -189,14 +193,32 @@ class GlobalAudioPlayer: ObservableObject {
         currentTime = 0
         duration = 0
         isLoaded = false
-        // End the media-attachment intent — coordinator re-applies the next intent
-        // or deactivates. Note: TTS is NOT auto-resumed (per plan scenario 1).
-        AudioSessionCoordinator.shared.end(.mediaAttachment)
-        // Resume silent audio keep-alive if we had suspended it
-        if wasLoaded {
+        releasePlaybackResources()
+    }
+
+    private func acquirePlaybackResources() {
+        if !silentAudioSuspended {
             let preCount = BackgroundKeepAliveManager.shared.silentAudioSuspendCount
-            logger.info("[AudioPlayback] stopInternal: resumeSilentAudio → count will be \(max(0, preCount - 1))")
+            logger.info("[AudioPlayback] acquire: suspendSilentAudio → count will be \(preCount + 1)")
+            BackgroundKeepAliveManager.shared.suspendSilentAudioForMedia()
+            silentAudioSuspended = true
+        }
+        if !mediaIntentHeld {
+            AudioSessionCoordinator.shared.begin(.mediaAttachment)
+            mediaIntentHeld = true
+        }
+    }
+
+    private func releasePlaybackResources() {
+        if mediaIntentHeld {
+            AudioSessionCoordinator.shared.end(.mediaAttachment)
+            mediaIntentHeld = false
+        }
+        if silentAudioSuspended {
+            let preCount = BackgroundKeepAliveManager.shared.silentAudioSuspendCount
+            logger.info("[AudioPlayback] release: resumeSilentAudio → count will be \(max(0, preCount - 1))")
             BackgroundKeepAliveManager.shared.resumeSilentAudioForMedia()
+            silentAudioSuspended = false
         }
     }
 
@@ -209,8 +231,9 @@ class GlobalAudioPlayer: ObservableObject {
                 if !p.isPlaying {
                     self.isPlaying = false
                     self.timer?.invalidate()
-                    // Natural end → release the media-attachment intent.
-                    AudioSessionCoordinator.shared.end(.mediaAttachment)
+                    // Natural end → release both the audio-session intent and
+                    // the matching silent-audio suspension.
+                    self.releasePlaybackResources()
                 }
             }
         }
