@@ -46,6 +46,13 @@ final class ShareViewModel {
     /// checkForPendingShare's staleness cutoff; anything older is abandoned
     /// content whose files the main app will clean up.
     func save() -> Bool {
+        // A process-local fallback is useful to keep Personal Team builds of
+        // the main app running, but it cannot transport data out of a Share
+        // Extension sandbox. Never report that write as a successful share.
+        guard SharedContainerStore.isAppGroupAvailable else {
+            NSLog("[ShareExt] save: App Group unavailable — refusing process-local fallback")
+            return false
+        }
         guard !pendingItems.isEmpty else { return false }
         var items = pendingItems
         if let existing = SharedContainerStore.loadPendingShare(),

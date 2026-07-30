@@ -2,6 +2,15 @@ import Foundation
 import AVFoundation
 import UIKit
 
+/// Opaque identity for one microphone-session owner.
+///
+/// A token can be begun or ended repeatedly without changing its ownership
+/// count. Separate capture paths must use separate tokens so one path cannot
+/// release another path's `.capture` intent.
+@objc public final class AudioSessionCaptureToken: NSObject {
+    fileprivate let id = UUID()
+}
+
 // MARK: - AudioSessionCoordinator
 //
 // The SINGLE owner of AVAudioSession category/active across the app. Every
@@ -39,6 +48,11 @@ final class AudioSessionCoordinator {
 
     private let logger = AppLogger(category: "AudioSession")
     private var active: Set<Intent> = []
+    /// Capture is the only intent that can legitimately have concurrent owners
+    /// (the voice UI and an apple-speech native offload). Keep those owners
+    /// separate from the legacy idempotent intent set so either API can coexist
+    /// without one caller prematurely releasing another caller's microphone.
+    private var captureTokens: Set<UUID> = []
     /// `sessionActive` tracks whether the process still owns AVAudioSession.
     /// A failed profile application leaves the previous session potentially
     /// active, but it must not be treated as healthy until a later apply
@@ -46,7 +60,9 @@ final class AudioSessionCoordinator {
     private var sessionNeedsReassertion = false
 
     /// True while the mic is capturing — reply TTS is suppressed in this state.
-    var isCapturing: Bool { active.contains(.capture) }
+    var isCapturing: Bool {
+        active.contains(.capture) || !captureTokens.isEmpty
+    }
 
     /// Runtime health of the background keep-alive intent. Merely finding the
     /// intent in `active` is insufficient: iOS may have deactivated the session,
@@ -95,6 +111,29 @@ final class AudioSessionCoordinator {
         apply(reason: "end(\(intent))")
     }
 
+    /// Acquire capture ownership for a specific caller. Reusing the same token
+    /// is idempotent, which is important when VAD reconfigures after an audio
+    /// interruption without ending its logical capture.
+    @discardableResult
+    func beginCapture(with token: AudioSessionCaptureToken) -> Bool {
+        let was = highest
+        let inserted = captureTokens.insert(token.id).inserted
+        if highest != was || !sessionActive || sessionNeedsReassertion {
+            return apply(reason: "begin(capture:\(inserted ? "new" : "existing"))") == nil
+        }
+        return true
+    }
+
+    /// Release only the capture ownership represented by `token`. Repeated
+    /// releases are harmless, and another owner's token keeps `.capture` active.
+    func endCapture(with token: AudioSessionCaptureToken) {
+        let was = highest
+        guard captureTokens.remove(token.id) != nil else { return }
+        if highest != was {
+            apply(reason: "end(capture)")
+        }
+    }
+
     /// Re-assert the correct session on foreground return (the stale-category
     /// fix). Intent ownership remains with each subsystem: in particular,
     /// BackgroundKeepAliveManager may deliberately debounce its foreground stop
@@ -112,7 +151,7 @@ final class AudioSessionCoordinator {
     /// Returns a user-facing error string so the Objective-C native offload can
     /// fail before touching MediaPlayer when the session cannot be activated.
     func beginApplicationMusic() -> String? {
-        guard !active.contains(.capture) else {
+        guard !isCapturing else {
             return "Cannot start Apple Music while the microphone is recording."
         }
 
@@ -146,7 +185,12 @@ final class AudioSessionCoordinator {
 
     private var sessionActive = false
 
-    private var highest: Intent? { active.max(by: { $0.rawValue < $1.rawValue }) }
+    private var highest: Intent? {
+        if !captureTokens.isEmpty {
+            return .capture
+        }
+        return active.max(by: { $0.rawValue < $1.rawValue })
+    }
 
     private func profile(for intent: Intent) -> (AVAudioSession.Category, AVAudioSession.Mode, AVAudioSession.CategoryOptions) {
         switch intent {
@@ -341,12 +385,28 @@ final class AudioSessionCoordinator {
 /// the coordinator's back.
 @MainActor
 @objc public final class AudioSessionOffloadBridge: NSObject {
+    private static let legacyCaptureToken = AudioSessionCaptureToken()
+
+    /// Legacy idempotent API retained for binary/source compatibility.
     @objc public static func beginCapture() {
-        AudioSessionCoordinator.shared.begin(.capture)
+        AudioSessionCoordinator.shared.beginCapture(with: legacyCaptureToken)
     }
 
     @objc public static func endCapture() {
-        AudioSessionCoordinator.shared.end(.capture)
+        AudioSessionCoordinator.shared.endCapture(with: legacyCaptureToken)
+    }
+
+    /// Acquire an independent capture lease for one native-offload invocation.
+    /// The returned opaque token must be passed to `releaseCapture(_:)`.
+    @objc public static func acquireCapture() -> AudioSessionCaptureToken {
+        let token = AudioSessionCaptureToken()
+        AudioSessionCoordinator.shared.beginCapture(with: token)
+        return token
+    }
+
+    /// Idempotently release one native-offload capture lease.
+    @objc public static func releaseCapture(_ token: AudioSessionCaptureToken) {
+        AudioSessionCoordinator.shared.endCapture(with: token)
     }
 
     /// Returns nil on success or a user-facing error on failure.

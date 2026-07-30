@@ -14,6 +14,20 @@
 #include <unistd.h>
 #include <math.h>
 
+#if __has_include("Minis-Swift.h")
+#import "Minis-Swift.h"
+#elif __has_include("MinisApp-Swift.h")
+#import "MinisApp-Swift.h"
+#else
+@class AudioSessionCaptureToken;
+@interface AudioSessionOffloadBridge : NSObject
++ (void)beginCapture;
++ (void)endCapture;
++ (AudioSessionCaptureToken *)acquireCapture;
++ (void)releaseCapture:(AudioSessionCaptureToken *)token;
+@end
+#endif
+
 static NSString *const TOOL_NAME = @"apple-speech";
 
 static NSString *const HELP_TEXT =
@@ -142,22 +156,47 @@ static dispatch_queue_t authQueue(void) {
 static int cmd_transcribe(int argc, char **argv, int stdout_fd, BOOL compact, BOOL quiet) {
     // Check authorization
     __block SFSpeechRecognizerAuthorizationStatus authStatus = [SFSpeechRecognizer authorizationStatus];
+    __block BOOL authTimedOut = NO;
 
     if (authStatus == SFSpeechRecognizerAuthorizationStatusNotDetermined) {
+        if ([NSThread isMainThread]) {
+            NSDictionary *err = noff_json_error(
+                TOOL_NAME, @"transcribe", NOFF_ERR_INTERNAL_ERROR,
+                @"Speech authorization must be requested from a background tool worker.");
+            noff_emit_json(stdout_fd, err, compact, quiet);
+            return NOFF_EXIT_ERROR;
+        }
+
         dispatch_sync(authQueue(), ^{
             // Re-check inside queue in case another thread already resolved it
             authStatus = [SFSpeechRecognizer authorizationStatus];
             if (authStatus != SFSpeechRecognizerAuthorizationStatusNotDetermined) return;
 
             dispatch_semaphore_t authSem = dispatch_semaphore_create(0);
-            __block SFSpeechRecognizerAuthorizationStatus newStatus;
-            [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
-                newStatus = status;
-                dispatch_semaphore_signal(authSem);
-            }];
-            dispatch_semaphore_wait(authSem, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
+            __block SFSpeechRecognizerAuthorizationStatus newStatus =
+                SFSpeechRecognizerAuthorizationStatusNotDetermined;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus status) {
+                    newStatus = status;
+                    dispatch_semaphore_signal(authSem);
+                }];
+            });
+            long authWait = dispatch_semaphore_wait(
+                authSem, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
+            if (authWait != 0) {
+                authTimedOut = YES;
+                return;
+            }
             authStatus = newStatus;
         });
+    }
+
+    if (authTimedOut) {
+        NSDictionary *err = noff_json_error(
+            TOOL_NAME, @"transcribe", NOFF_ERR_TIMEOUT,
+            @"Timed out while waiting for Speech Recognition permission.");
+        noff_emit_json(stdout_fd, err, compact, quiet);
+        return NOFF_EXIT_ERROR;
     }
 
     if (authStatus != SFSpeechRecognizerAuthorizationStatusAuthorized) {
@@ -238,6 +277,45 @@ static int cmd_transcribe(int argc, char **argv, int stdout_fd, BOOL compact, BO
     __block BOOL isFinal = NO;
     __block NSError *recognitionError = nil;
     __block BOOL timedOut = NO;
+    __block SFSpeechRecognitionTask *recognitionTask = nil;
+
+    // Mic capture lifecycle. Every terminal path funnels through the idempotent
+    // main-thread cleanup block so the recording intent and input tap cannot leak.
+    __block AVAudioEngine *audioEngine = nil;
+    __block AVAudioInputNode *inputNode = nil;
+    __block SFSpeechAudioBufferRecognitionRequest *bufferRequest = nil;
+    __block BOOL tapInstalled = NO;
+    __block AudioSessionCaptureToken *captureToken = nil;
+    __block BOOL captureCleaned = NO;
+    __block BOOL operationExpired = NO;
+    NSObject *lifecycleLock = [[NSObject alloc] init];
+    dispatch_group_t cleanupGroup = micSource ? dispatch_group_create() : nil;
+    if (cleanupGroup) dispatch_group_enter(cleanupGroup);
+
+    void (^cleanupMicOnMain)(BOOL) = ^(BOOL cancelRecognition) {
+        NSCAssert([NSThread isMainThread], @"Speech capture cleanup must stay on main");
+        if (!micSource || captureCleaned) return;
+        captureCleaned = YES;
+
+        if (audioEngine.isRunning) {
+            [audioEngine stop];
+        }
+        if (tapInstalled && inputNode) {
+            [inputNode removeTapOnBus:0];
+            tapInstalled = NO;
+        }
+        if (bufferRequest) {
+            [bufferRequest endAudio];
+        }
+        if (cancelRecognition && recognitionTask) {
+            [recognitionTask cancel];
+        }
+        if (captureToken) {
+            [AudioSessionOffloadBridge releaseCapture:captureToken];
+            captureToken = nil;
+        }
+        if (cleanupGroup) dispatch_group_leave(cleanupGroup);
+    };
 
     if (!micSource) {
         NSURL *fileURL = [NSURL fileURLWithPath:resolvedFilePath];
@@ -257,8 +335,9 @@ static int cmd_transcribe(int argc, char **argv, int stdout_fd, BOOL compact, BO
                 request.requiresOnDeviceRecognition = YES;
             }
 
-            [recognizer recognitionTaskWithRequest:request
-                                     resultHandler:^(SFSpeechRecognitionResult *result, NSError *error) {
+            recognitionTask =
+                [recognizer recognitionTaskWithRequest:request
+                                         resultHandler:^(SFSpeechRecognitionResult *result, NSError *error) {
                 if (error) {
                     recognitionError = error;
                     dispatch_semaphore_signal(sem);
@@ -286,30 +365,38 @@ static int cmd_transcribe(int argc, char **argv, int stdout_fd, BOOL compact, BO
 
         long waitResult = dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(waitTimeout * NSEC_PER_SEC)));
         timedOut = (waitResult != 0);
+        if (timedOut) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [recognitionTask cancel];
+            });
+        }
     } else {
         // Set up audio engine and recognition request (mic source)
         dispatch_async(dispatch_get_main_queue(), ^{
-            AVAudioSession *audioSession = [AVAudioSession sharedInstance];
-            NSError *sessionError = nil;
-            [audioSession setCategory:AVAudioSessionCategoryRecord
-                                 mode:AVAudioSessionModeMeasurement
-                              options:AVAudioSessionCategoryOptionDuckOthers
-                                error:&sessionError];
-            [audioSession setActive:YES withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
-                              error:&sessionError];
-
-            AVAudioEngine *audioEngine = [[AVAudioEngine alloc] init];
-            SFSpeechAudioBufferRecognitionRequest *request = [[SFSpeechAudioBufferRecognitionRequest alloc] init];
-            request.shouldReportPartialResults = YES;
-
-            if (onDevice && recognizer.supportsOnDeviceRecognition) {
-                request.requiresOnDeviceRecognition = YES;
+            @synchronized (lifecycleLock) {
+                if (operationExpired) {
+                    cleanupMicOnMain(YES);
+                    return;
+                }
             }
 
-            [recognizer recognitionTaskWithRequest:request
-                                     resultHandler:^(SFSpeechRecognitionResult *result, NSError *error) {
+            captureToken = [AudioSessionOffloadBridge acquireCapture];
+            audioEngine = [[AVAudioEngine alloc] init];
+            bufferRequest = [[SFSpeechAudioBufferRecognitionRequest alloc] init];
+            bufferRequest.shouldReportPartialResults = YES;
+
+            if (onDevice && recognizer.supportsOnDeviceRecognition) {
+                bufferRequest.requiresOnDeviceRecognition = YES;
+            }
+
+            recognitionTask =
+                [recognizer recognitionTaskWithRequest:bufferRequest
+                                         resultHandler:^(SFSpeechRecognitionResult *result, NSError *error) {
                 if (error) {
                     recognitionError = error;
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        cleanupMicOnMain(YES);
+                    });
                     dispatch_semaphore_signal(sem);
                     return;
                 }
@@ -327,23 +414,28 @@ static int cmd_transcribe(int argc, char **argv, int stdout_fd, BOOL compact, BO
                     finalSegments = segs;
                     isFinal = result.isFinal;
                     if (result.isFinal) {
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            cleanupMicOnMain(NO);
+                        });
                         dispatch_semaphore_signal(sem);
                     }
                 }
             }];
 
-            AVAudioInputNode *inputNode = audioEngine.inputNode;
+            inputNode = audioEngine.inputNode;
             AVAudioFormat *recordingFormat = [inputNode outputFormatForBus:0];
             [inputNode installTapOnBus:0 bufferSize:1024 format:recordingFormat
                                  block:^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
-                [request appendAudioPCMBuffer:buffer];
+                [bufferRequest appendAudioPCMBuffer:buffer];
             }];
+            tapInstalled = YES;
 
             [audioEngine prepare];
             NSError *startError = nil;
             [audioEngine startAndReturnError:&startError];
             if (startError) {
                 recognitionError = startError;
+                cleanupMicOnMain(YES);
                 dispatch_semaphore_signal(sem);
                 return;
             }
@@ -351,13 +443,14 @@ static int cmd_transcribe(int argc, char **argv, int stdout_fd, BOOL compact, BO
             // Stop after duration
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(duration * NSEC_PER_SEC)),
                            dispatch_get_main_queue(), ^{
-                [audioEngine stop];
-                [inputNode removeTapOnBus:0];
-                [request endAudio];
+                cleanupMicOnMain(NO);
 
                 // Give recognition a moment to finalize
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC),
                                dispatch_get_main_queue(), ^{
+                    if (!isFinal) {
+                        [recognitionTask cancel];
+                    }
                     dispatch_semaphore_signal(sem);
                 });
             });
@@ -366,11 +459,24 @@ static int cmd_transcribe(int argc, char **argv, int stdout_fd, BOOL compact, BO
         // Wait for duration + processing time
         long waitResult = dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)((duration + 10) * NSEC_PER_SEC)));
         timedOut = (waitResult != 0);
+        if (timedOut) {
+            @synchronized (lifecycleLock) {
+                operationExpired = YES;
+            }
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            cleanupMicOnMain(timedOut);
+        });
+        // Cleanup is expected to be immediate; never let a wedged main queue
+        // turn this native command into another unbounded shell process.
+        dispatch_group_wait(
+            cleanupGroup,
+            dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
     }
 
     if (timedOut && !finalText) {
         NSDictionary *err = noff_json_error(TOOL_NAME, @"transcribe",
-                                             NOFF_ERR_INTERNAL_ERROR,
+                                             NOFF_ERR_TIMEOUT,
                                              @"Recognition timed out before receiving results.");
         noff_emit_json(stdout_fd, err, compact, quiet);
         return NOFF_EXIT_ERROR;

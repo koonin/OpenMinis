@@ -21,9 +21,7 @@ enum FPSyncTraceLog {
     private static let osLog = OSLog(subsystem: "com.openminis.app.FileProvider", category: "FPSyncTrace")
 
     private static var fileURL: URL? {
-        guard let container = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.com.openminis.app"
-        ) else { return nil }
+        let container = FileProviderExtension.containerRoot
         let dir = container.appendingPathComponent("MinisConfig", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent(logFileName)
@@ -70,7 +68,7 @@ enum FPSyncTraceLog {
 
         if let handle = try? FileHandle(forWritingTo: url) {
             defer { try? handle.close() }
-            try? handle.seekToEnd()
+            _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: data)
         } else {
             // Fallback if open-for-writing fails: rewrite from scratch.

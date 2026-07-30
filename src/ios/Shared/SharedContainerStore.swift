@@ -3,19 +3,48 @@ import Foundation
 /// Reads and writes PendingShare data to the App Group shared container.
 /// Compiled into both the main app target and the Share Extension target.
 enum SharedContainerStore {
-    static let appGroupID = "group.com.openminis.app"
+    static let appGroupID = "group.com.koon.app"
 
     private static let pendingShareKey = "pendingShare"
 
+    /// The real App Group container, or `nil` when the active provisioning
+    /// profile does not include App Groups (for example a Personal Team build).
+    static var appGroupContainerURL: URL? {
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupID
+        )
+    }
+
+    static var isAppGroupAvailable: Bool {
+        appGroupContainerURL != nil
+    }
+
+    /// Personal development teams cannot provision App Groups. Keep Debug
+    /// builds usable by falling back to this process's Application Support
+    /// directory; cross-process sharing remains unavailable in that mode.
+    static var containerURL: URL {
+        let fm = FileManager.default
+        if let groupURL = appGroupContainerURL {
+            return groupURL
+        }
+
+        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fm.temporaryDirectory
+        let fallback = base.appendingPathComponent("PersonalTeamShared", isDirectory: true)
+        try? fm.createDirectory(at: fallback, withIntermediateDirectories: true)
+        return fallback
+    }
+
     static var sharedDefaults: UserDefaults? {
-        UserDefaults(suiteName: appGroupID)
+        if isAppGroupAvailable {
+            return UserDefaults(suiteName: appGroupID)
+        }
+        return .standard
     }
 
     /// Directory in the shared container for transferring attachment files.
     static var sharedFileDirectory: URL? {
-        FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
-            .appendingPathComponent("ShareExtension", isDirectory: true)
+        containerURL.appendingPathComponent("ShareExtension", isDirectory: true)
     }
 
     // MARK: - Write (called by Share Extension)

@@ -5,11 +5,22 @@ class ShareViewController: UIViewController {
 
     /// Set to true once async processing + redirect is done, so viewDidAppear can dismiss.
     private var processingDone = false
+    private var pendingFailure: (title: String, message: String)?
+    private var failurePresented = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
         NSLog("[ShareExt] viewDidLoad — starting processing")
+
+        guard SharedContainerStore.isAppGroupAvailable else {
+            NSLog("[ShareExt] App Group unavailable — sharing is disabled for this build")
+            showFailure(
+                title: "Sharing Unavailable",
+                message: "This development build cannot access the shared storage used by Minis and its share extension. Use a build signed with App Group support."
+            )
+            return
+        }
 
         Task { @MainActor in
             let vm = ShareViewModel()
@@ -18,6 +29,13 @@ class ShareViewController: UIViewController {
             await vm.processExtensionItems(items)
             let saved = vm.save()
             NSLog("[ShareExt] save() returned: %@", saved ? "true" : "false")
+            guard saved else {
+                showFailure(
+                    title: "Couldn’t Share",
+                    message: "Minis couldn’t prepare this content. Close the share sheet and try again."
+                )
+                return
+            }
 
             // Verify what was saved
             if let pending = SharedContainerStore.loadPendingShare() {
@@ -56,6 +74,11 @@ class ShareViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if pendingFailure != nil {
+            presentFailureIfNeeded()
+            return
+        }
+
         // Only dismiss if async processing is already done.
         // If not done yet, the Task completion above will dismiss.
         if processingDone {
@@ -64,6 +87,33 @@ class ShareViewController: UIViewController {
         } else {
             NSLog("[ShareExt] viewDidAppear — processing still in progress, deferring dismiss")
         }
+    }
+
+    // MARK: - Failure UI
+
+    private func showFailure(title: String, message: String) {
+        processingDone = false
+        pendingFailure = (title, message)
+        view.backgroundColor = .systemBackground
+        presentFailureIfNeeded()
+    }
+
+    private func presentFailureIfNeeded() {
+        guard viewIfLoaded?.window != nil,
+              !failurePresented,
+              presentedViewController == nil,
+              let failure = pendingFailure else { return }
+
+        failurePresented = true
+        let alert = UIAlertController(
+            title: failure.title,
+            message: failure.message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Close", style: .default) { [weak self] _ in
+            self?.extensionContext?.completeRequest(returningItems: [])
+        })
+        present(alert, animated: true)
     }
 
     // MARK: - Redirect to main app

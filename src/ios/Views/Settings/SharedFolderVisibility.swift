@@ -6,7 +6,7 @@
 //  (shared / skills / memory) should appear in the iOS Files app.
 //  Both the main app process and the FileProvider extension read this.
 //
-//  Backing store: App Group UserDefaults (`group.com.openminis.app`) so
+//  Backing store: App Group UserDefaults (`group.com.koon.app`) so
 //  the FileProvider extension sees the same state as the main app.
 //
 //  Semantics:
@@ -23,13 +23,19 @@ enum SharedFolderVisibility {
     /// Must match FileProviderExtension.topLevelSubdirs.
     static let allFolderNames: [String] = ["shared", "skills", "memory"]
 
-    private static let appGroupID = "group.com.openminis.app"
+    static let appGroupID = "group.com.koon.app"
     private static let userDefaultsKeyPrefix = "fileProviderVisible."
 
     private static var store: UserDefaults {
         // Prefer the App Group suite so the FileProvider extension sees the
-        // same values; fall back to standard if unavailable.
-        UserDefaults(suiteName: appGroupID) ?? .standard
+        // same values. `UserDefaults(suiteName:)` may still succeed without
+        // the entitlement, so test the container capability explicitly.
+        guard FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupID
+        ) != nil else {
+            return .standard
+        }
+        return UserDefaults(suiteName: appGroupID) ?? .standard
     }
 
     /// Whether the given folder name (e.g. "shared") is currently visible in Files.

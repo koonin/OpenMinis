@@ -49,6 +49,9 @@ final class VoiceActivityDetector: NSObject {
 
     private let logger = AppLogger(category: "VAD")
     private let audioEngine = AVAudioEngine()
+    /// Stable across interruption-driven engine rebuilds so reconfiguration is
+    /// idempotent, while other capture paths retain their own independent token.
+    private let audioSessionCaptureToken = AudioSessionCaptureToken()
     private let vadQueue = DispatchQueue(label: "com.openminis.app.vad", qos: .userInteractive)
     private var vad: VADWrapper?
 
@@ -395,7 +398,7 @@ final class VoiceActivityDetector: NSObject {
         // re-applies a lower-priority intent's profile (e.g. reply TTS) or
         // deactivates the session, letting other audio resume.
         MainActor.assumeIsolated {
-            AudioSessionCoordinator.shared.end(.capture)
+            AudioSessionCoordinator.shared.endCapture(with: audioSessionCaptureToken)
             BackgroundKeepAliveManager.shared.resumeSilentAudioForMedia(caller: "VAD.capture")
         }
         VoiceLog.log("AVAudioSession: end(.capture)")
@@ -410,7 +413,7 @@ final class VoiceActivityDetector: NSObject {
         // races with TTS / keep-alive). All call sites run on the main actor.
         MainActor.assumeIsolated {
             BackgroundKeepAliveManager.shared.suspendSilentAudioForMedia(caller: "VAD.capture")
-            AudioSessionCoordinator.shared.begin(.capture)
+            AudioSessionCoordinator.shared.beginCapture(with: audioSessionCaptureToken)
         }
         VoiceLog.log("AVAudioSession: begin(.capture)")
     }

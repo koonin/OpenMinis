@@ -11,12 +11,26 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
 
     private static let log = OSLog(subsystem: "com.openminis.app.FileProvider", category: "Extension")
 
+    /// App Groups are unavailable to Personal Team builds. In that case the
+    /// extension gets a private local directory so it can still launch, even
+    /// though it cannot share files with the containing app.
+    static var containerRoot: URL {
+        let fm = FileManager.default
+        if let groupURL = fm.containerURL(
+            forSecurityApplicationGroupIdentifier: SharedFolderVisibility.appGroupID
+        ) {
+            return groupURL
+        }
+        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fm.temporaryDirectory
+        let fallback = base.appendingPathComponent("PersonalTeamShared", isDirectory: true)
+        try? fm.createDirectory(at: fallback, withIntermediateDirectories: true)
+        return fallback
+    }
+
     /// Root directory for all FileProvider-visible files in the App Group container.
     static var providerRoot: URL {
-        let container = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.com.openminis.app"
-        )!
-        let url = container.appendingPathComponent("MinisFileProvider", isDirectory: true)
+        let url = containerRoot.appendingPathComponent("MinisFileProvider", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -71,11 +85,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         }
 
         // Location 2: under MinisConfig (private but still pure cruft).
-        if let container = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app") {
-            let inConfig = container.appendingPathComponent("MinisConfig/logs", isDirectory: true)
-            if fm.fileExists(atPath: inConfig.path, isDirectory: &isDir), isDir.boolValue {
-                try? fm.removeItem(at: inConfig)
-            }
+        let inConfig = containerRoot.appendingPathComponent("MinisConfig/logs", isDirectory: true)
+        if fm.fileExists(atPath: inConfig.path, isDirectory: &isDir), isDir.boolValue {
+            try? fm.removeItem(at: inConfig)
         }
     }
 
@@ -90,8 +102,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         guard fm.fileExists(atPath: legacy.path) else { return }
         // Only delete if the canonical copy already exists under MinisConfig —
         // otherwise we'd lose the data.
-        guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app") else { return }
-        let canonical = container.appendingPathComponent("MinisConfig/mounted-folders.json")
+        let canonical = containerRoot.appendingPathComponent("MinisConfig/mounted-folders.json")
         if fm.fileExists(atPath: canonical.path) {
             try? fm.removeItem(at: legacy)
         }

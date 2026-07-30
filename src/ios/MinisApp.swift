@@ -530,6 +530,14 @@ struct MinisApp: App {
     private static let fileProviderResetKey = "fileProviderResetGeneration"
 
     private static func registerFileProviderDomain() {
+        guard SharedContainerStore.isAppGroupAvailable else {
+            lifecycleLog.info(
+                "[FileProvider] App Group \(SharedContainerStore.appGroupID) unavailable; "
+                    + "skipping domain registration for this provisioning profile"
+            )
+            return
+        }
+
         let root = AIChatViewModel.minisAppGroupRoot
         let fm = FileManager.default
         // Ensure all three subdirectories exist.
@@ -855,7 +863,7 @@ struct MinisApp: App {
     private static func migrateSharedDirToAppGroup() {
         let fm = FileManager.default
         let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let container = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app")!
+        let container = SharedContainerStore.containerURL
 
         let migrations: [(source: URL, dest: URL, label: String)] = [
             // Legacy Library/MinisChat/shared → new shared
@@ -896,11 +904,14 @@ struct MinisApp: App {
     /// targets logged during MOUNT setup.
     private static func logFPSyncTracePaths() {
         let fm = FileManager.default
-        let groupID = "group.com.openminis.app"
-        let containerURL = fm.containerURL(forSecurityApplicationGroupIdentifier: groupID)
-        let containerPath = containerURL?.path ?? "<nil>"
-        let resolvedContainer = containerURL?.resolvingSymlinksInPath().path ?? "<nil>"
-        lifecycleLog.info("[FPSyncTrace] appGroup=\(groupID) container=\(containerPath) resolved=\(resolvedContainer)")
+        let groupID = SharedContainerStore.appGroupID
+        let containerURL = SharedContainerStore.containerURL
+        let containerPath = containerURL.path
+        let resolvedContainer = containerURL.resolvingSymlinksInPath().path
+        lifecycleLog.info(
+            "[FPSyncTrace] appGroup=\(groupID) available=\(SharedContainerStore.isAppGroupAvailable) "
+                + "container=\(containerPath) resolved=\(resolvedContainer)"
+        )
 
         let providerRoot = AIChatViewModel.minisAppGroupRoot
         lifecycleLog.info("[FPSyncTrace] providerRoot=\(providerRoot.path) resolved=\(providerRoot.resolvingSymlinksInPath().path)")
