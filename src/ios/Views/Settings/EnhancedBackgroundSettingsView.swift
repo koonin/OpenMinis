@@ -308,7 +308,7 @@ struct ScheduledTasksSettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Run Minis on a Schedule")
                             .font(.headline)
-                        Text("Use a Shortcuts Personal Automation to start a Minis task at a specific time or on selected days.")
+                        Text("Create one reusable shortcut, then have a Personal Automation run it at the time you choose.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -360,28 +360,23 @@ struct ScheduledTasksSettingsView: View {
             Section {
                 setupStep(
                     1,
-                    title: "Open Automation",
-                    detail: "Open Shortcuts, tap Automation, then tap the plus button."
+                    title: "Copy Prompt",
+                    detail: "Copy the prepared prompt above, or have your task text ready."
                 )
                 setupStep(
                     2,
-                    title: "Choose the Schedule",
-                    detail: "Select Time of Day, set the time and repeat rule, choose Run Immediately, then tap Next."
+                    title: "Create a Regular Shortcut",
+                    detail: "Tap Create Shortcut below to open a new shortcut editor."
                 )
                 setupStep(
                     3,
-                    title: "Choose New Blank Automation",
-                    detail: "On the next screen, choose New Blank Automation. Do not select a suggested or existing shortcut."
-                )
-                setupStep(
-                    4,
                     title: "Add Send Prompt",
                     detail: "Tap Add Action, then choose Apps → Minis → Send Prompt."
                 )
                 setupStep(
-                    5,
-                    title: "Paste the Prompt",
-                    detail: "Tap the blue Prompt placeholder, paste the task, leave Wait for Result off, then tap Done."
+                    4,
+                    title: "Paste and Save",
+                    detail: "Tap the blue Prompt placeholder, paste the task, leave Wait for Result off, give the shortcut a recognizable name, then tap Done."
                 )
 
                 Label {
@@ -397,13 +392,45 @@ struct ScheduledTasksSettingsView: View {
                         .foregroundStyle(.orange)
                 }
                 .accessibilityIdentifier("scheduled-task-ask-minis-warning")
+                HStack {
+                    Spacer()
+                    Button {
+                        createShortcut()
+                    } label: {
+                        Label("Create Shortcut", systemImage: "plus.app")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("scheduled-task-create-shortcut")
+                    Spacer()
+                }
             } header: {
-                Text("Set Up in Shortcuts")
+                Text("First: Create the Task Shortcut")
             } footer: {
-                Text("Apple keeps Personal Automations private to the Shortcuts app, so Minis cannot create, list, or edit their schedules. Their next run is managed by Shortcuts.")
+                Text("You can run this shortcut once to test it before adding the time schedule.")
             }
 
             Section {
+                setupStep(
+                    5,
+                    title: "Open Automation",
+                    detail: "Open Shortcuts, tap Automation, then tap the plus button, Create Personal Automation, or New Automation—whichever appears."
+                )
+                setupStep(
+                    6,
+                    title: "Choose the Schedule",
+                    detail: "Select Time of Day and set the schedule. Choose Run Immediately when shown, then tap Next."
+                )
+                setupStep(
+                    7,
+                    title: "Select Your Saved Shortcut",
+                    detail: "Select or search for the shortcut you just saved. If an editor opens instead, add Run Shortcut and select it."
+                )
+                setupStep(
+                    8,
+                    title: "Confirm Automatic Run",
+                    detail: "If the final screen shows Ask Before Running, turn it off and confirm Don’t Ask. Then tap Done."
+                )
+
                 HStack {
                     Spacer()
                     Button {
@@ -414,8 +441,10 @@ struct ScheduledTasksSettingsView: View {
                     .buttonStyle(.borderedProminent)
                     Spacer()
                 }
+            } header: {
+                Text("Then: Add the Time Schedule")
             } footer: {
-                Text("This opens Shortcuts in its last view. Tap Automation to create the time trigger.")
+                Text("Apple keeps Personal Automations private to the Shortcuts app, so Minis cannot create, list, or edit their schedules. Their next run is managed by Shortcuts.")
             }
 
             Section {
@@ -579,7 +608,12 @@ struct ScheduledTasksSettingsView: View {
     }
 
     private func openShortcuts() {
-        guard let url = URL(string: "shortcuts://") else { return }
+        guard let url = URL(string: ScheduledTaskSetupGuide.shortcutsAppDeepLink) else { return }
+        openURL(url)
+    }
+
+    private func createShortcut() {
+        guard let url = URL(string: ScheduledTaskSetupGuide.createShortcutDeepLink) else { return }
         openURL(url)
     }
 }

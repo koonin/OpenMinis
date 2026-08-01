@@ -77276,24 +77276,90 @@
         }
       }
     },
-    "Use a Shortcuts Personal Automation to start a Minis task at a specific time or on selected days." : {
+    "Create one reusable shortcut, then have a Personal Automation run it at the time you choose." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Use a Shortcuts Personal Automation to start a Minis task at a specific time or on selected days."
+            "value" : "Create one reusable shortcut, then have a Personal Automation run it at the time you choose."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "使用“快捷指令”个人自动化，在指定时间或选定日期启动 Minis 任务。"
+            "value" : "先创建一个可复用的快捷指令，再让个人自动化在你选择的时间运行它。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "使用「捷徑」個人自動化，在指定時間或選定日期啟動 Minis 任務。"
+            "value" : "先建立一個可重複使用的捷徑，再讓個人自動化在你選擇的時間執行它。"
+          }
+        }
+      }
+    },
+    "Copy the prepared prompt above, or have your task text ready." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy the prepared prompt above, or have your task text ready."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制上方准备好的提示词，或先准备好任务文本。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複製上方準備好的提示詞，或先準備好任務文字。"
+          }
+        }
+      }
+    },
+    "Create a Regular Shortcut" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create a Regular Shortcut"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "创建普通快捷指令"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "建立一般捷徑"
+          }
+        }
+      }
+    },
+    "Tap Create Shortcut below to open a new shortcut editor." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap Create Shortcut below to open a new shortcut editor."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轻点下方“创建快捷指令”，打开新的快捷指令编辑器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "點一下下方的「建立捷徑」，開啟新的捷徑編輯器。"
           }
         }
       }
@@ -77320,24 +77386,24 @@
         }
       }
     },
-    "Open Shortcuts, tap Automation, then tap the plus button." : {
+    "Open Shortcuts, tap Automation, then tap the plus button, Create Personal Automation, or New Automation—whichever appears." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Open Shortcuts, tap Automation, then tap the plus button."
+            "value" : "Open Shortcuts, tap Automation, then tap the plus button, Create Personal Automation, or New Automation—whichever appears."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "打开“快捷指令”，轻点“自动化”，然后轻点加号按钮。"
+            "value" : "打开“快捷指令”，轻点“自动化”，然后轻点加号、“创建个人自动化”或“新建自动化”（以页面显示为准）。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "開啟「捷徑」，點一下「自動化」，然後點一下加號按鈕。"
+            "value" : "開啟「捷徑」，點一下「自動化」，然後點一下加號、「建立個人自動化」或「新增自動化」（以畫面顯示為準）。"
           }
         }
       }
@@ -77364,68 +77430,112 @@
         }
       }
     },
-    "Select Time of Day, set the time and repeat rule, choose Run Immediately, then tap Next." : {
+    "Select Time of Day and set the schedule. Choose Run Immediately when shown, then tap Next." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Select Time of Day, set the time and repeat rule, choose Run Immediately, then tap Next."
+            "value" : "Select Time of Day and set the schedule. Choose Run Immediately when shown, then tap Next."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择“特定时间”，设置时间和重复规则，选择“立即运行”，然后轻点“下一步”。"
+            "value" : "选择“特定时间”并设置时间计划。如果页面显示“立即运行”，请选择它，然后轻点“下一步”。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選擇「特定時間」，設定時間和重複規則，選擇「立即執行」，然後點一下「下一步」。"
+            "value" : "選擇「特定時間」並設定時間排程。如果畫面顯示「立即執行」，請選擇它，然後點一下「下一步」。"
           }
         }
       }
     },
-    "Choose New Blank Automation" : {
+    "Select Your Saved Shortcut" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choose New Blank Automation"
+            "value" : "Select Your Saved Shortcut"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择“新建空白自动化”"
+            "value" : "选择已保存的快捷指令"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選擇「新增空白自動化操作」"
+            "value" : "選擇已儲存的捷徑"
           }
         }
       }
     },
-    "On the next screen, choose New Blank Automation. Do not select a suggested or existing shortcut." : {
+    "Select or search for the shortcut you just saved. If an editor opens instead, add Run Shortcut and select it." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "On the next screen, choose New Blank Automation. Do not select a suggested or existing shortcut."
+            "value" : "Select or search for the shortcut you just saved. If an editor opens instead, add Run Shortcut and select it."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在下一个页面选择“新建空白自动化”。不要选择建议的自动化或现有快捷指令。"
+            "value" : "选择或搜索刚保存的快捷指令。如果系统直接打开编辑器，请添加“运行快捷指令”并选择它。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在下一個畫面選擇「新增空白自動化操作」。不要選擇建議的自動化操作或現有捷徑。"
+            "value" : "選擇或搜尋剛儲存的捷徑。如果系統直接開啟編輯器，請加入「執行捷徑」並選擇它。"
+          }
+        }
+      }
+    },
+    "Confirm Automatic Run" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm Automatic Run"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "确认自动运行"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認自動執行"
+          }
+        }
+      }
+    },
+    "If the final screen shows Ask Before Running, turn it off and confirm Don’t Ask. Then tap Done." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If the final screen shows Ask Before Running, turn it off and confirm Don’t Ask. Then tap Done."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果最终页面显示“运行前询问”，请将其关闭并确认“不询问”，然后轻点“完成”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果最後畫面顯示「執行前詢問」，請將它關閉並確認「不要詢問」，然後點一下「完成」。"
           }
         }
       }
@@ -77474,46 +77584,46 @@
         }
       }
     },
-    "Paste the Prompt" : {
+    "Paste and Save" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Paste the Prompt"
+            "value" : "Paste and Save"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "粘贴提示词"
+            "value" : "粘贴并保存"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "貼上提示詞"
+            "value" : "貼上並儲存"
           }
         }
       }
     },
-    "Tap the blue Prompt placeholder, paste the task, leave Wait for Result off, then tap Done." : {
+    "Tap the blue Prompt placeholder, paste the task, leave Wait for Result off, give the shortcut a recognizable name, then tap Done." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tap the blue Prompt placeholder, paste the task, leave Wait for Result off, then tap Done."
+            "value" : "Tap the blue Prompt placeholder, paste the task, leave Wait for Result off, give the shortcut a recognizable name, then tap Done."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "轻点蓝色的“提示”占位符，粘贴任务，保持“等待结果”关闭，然后轻点“完成”。"
+            "value" : "轻点蓝色“提示”占位符，粘贴任务，关闭“等待结果”，为快捷指令起一个容易识别的名称，然后轻点“完成”。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "點一下藍色的「提示」暫存區，貼上任務，保持「等待結果」關閉，然後點一下「完成」。"
+            "value" : "點一下藍色的「提示」暫存區，貼上任務，關閉「等待結果」，為捷徑取一個容易辨識的名稱，然後點一下「完成」。"
           }
         }
       }
@@ -77672,24 +77782,90 @@
         }
       }
     },
-    "Set Up in Shortcuts" : {
+    "Create Shortcut" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Set Up in Shortcuts"
+            "value" : "Create Shortcut"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在快捷指令中设置"
+            "value" : "创建快捷指令"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在捷徑中設定"
+            "value" : "建立捷徑"
+          }
+        }
+      }
+    },
+    "First: Create the Task Shortcut" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "First: Create the Task Shortcut"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第一步：创建任务快捷指令"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第一步：建立任務捷徑"
+          }
+        }
+      }
+    },
+    "You can run this shortcut once to test it before adding the time schedule." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can run this shortcut once to test it before adding the time schedule."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加时间计划前，可以先运行一次这个快捷指令进行测试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "加入時間排程前，可以先執行一次這個捷徑進行測試。"
+          }
+        }
+      }
+    },
+    "Then: Add the Time Schedule" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Then: Add the Time Schedule"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第二步：添加时间计划"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第二步：加入時間排程"
           }
         }
       }
@@ -77712,28 +77888,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apple 僅允許「捷徑」管理個人自動化，因此 Minis 無法建立、列出或編輯其排程。下次執行時間由「捷徑」管理。"
-          }
-        }
-      }
-    },
-    "This opens Shortcuts in its last view. Tap Automation to create the time trigger." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This opens Shortcuts in its last view. Tap Automation to create the time trigger."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "这会打开“快捷指令”上次停留的页面。请轻点“自动化”来创建时间触发条件。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "這會開啟「捷徑」上次停留的畫面。請點一下「自動化」來建立時間觸發條件。"
           }
         }
       }

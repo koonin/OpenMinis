@@ -2,16 +2,30 @@ import Foundation
 import XCTest
 
 final class ScheduledTaskSetupGuideTests: XCTestCase {
-    func testAgentGuidanceNamesCorrectAutomationPathAndRejectsAskMinis() {
+    func testAgentGuidanceUsesSavedShortcutFlowAndRejectsAskMinis() {
         let guidance = ScheduledTaskSetupGuide.agentGuidance
 
-        XCTAssertTrue(guidance.contains("New Blank Automation"))
+        XCTAssertTrue(guidance.contains("regular shortcut"))
         XCTAssertTrue(guidance.contains("Send Prompt"))
         XCTAssertTrue(guidance.contains("Prompt"))
         XCTAssertTrue(guidance.contains("Run Immediately"))
+        XCTAssertTrue(guidance.contains("Create Personal Automation"))
+        XCTAssertTrue(guidance.contains("Ask Before Running"))
+        XCTAssertTrue(guidance.contains("Don’t Ask"))
+        XCTAssertTrue(guidance.contains("search for that saved shortcut"))
+        XCTAssertTrue(guidance.contains("Run Shortcut"))
         XCTAssertTrue(guidance.contains(ScheduledTaskSetupGuide.setupDeepLink))
         XCTAssertTrue(guidance.contains("Never tell the user to select Ask Minis"))
-        XCTAssertTrue(guidance.contains("suggested or existing shortcut"))
+        XCTAssertFalse(guidance.contains("New Blank Automation"))
+    }
+
+    func testShortcutDeepLinksUseAppleShortcutsScheme() throws {
+        let appURL = try XCTUnwrap(URL(string: ScheduledTaskSetupGuide.shortcutsAppDeepLink))
+        let createURL = try XCTUnwrap(URL(string: ScheduledTaskSetupGuide.createShortcutDeepLink))
+
+        XCTAssertEqual(appURL.scheme, "shortcuts")
+        XCTAssertEqual(createURL.scheme, "shortcuts")
+        XCTAssertEqual(createURL.host, "create-shortcut")
     }
 
     func testPreparedPromptRoundTripsReservedCharactersAndUnicode() throws {
