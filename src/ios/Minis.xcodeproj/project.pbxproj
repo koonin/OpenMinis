@@ -313,6 +313,8 @@
 		E5P000002 /* EnvironmentVariablesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5P000012 /* EnvironmentVariablesView.swift */; };
 		E5P000003 /* DeepLinkCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5P000013 /* DeepLinkCoordinator.swift */; };
 		E5P000004 /* DeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5P000014 /* DeepLinkRouter.swift */; };
+		E5STG0001 /* ScheduledTaskSetupGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5STG0003 /* ScheduledTaskSetupGuide.swift */; };
+		E5STG0002 /* ScheduledTaskSetupGuide.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5STG0003 /* ScheduledTaskSetupGuide.swift */; };
 		E5PRIV01 /* EnvVarPrivacyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5PRIV11 /* EnvVarPrivacyStore.swift */; };
 		E5PRIV02 /* EnvVarRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5PRIV12 /* EnvVarRedactor.swift */; };
 		E5PV00001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E5PV00002 /* PrivacyInfo.xcprivacy */; };
@@ -934,6 +936,7 @@
 		E5P000012 /* EnvironmentVariablesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvironmentVariablesView.swift; sourceTree = "<group>"; };
 		E5P000013 /* DeepLinkCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkCoordinator.swift; sourceTree = "<group>"; };
 		E5P000014 /* DeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkRouter.swift; sourceTree = "<group>"; };
+		E5STG0003 /* ScheduledTaskSetupGuide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledTaskSetupGuide.swift; sourceTree = "<group>"; };
 		E5PRIV11 /* EnvVarPrivacyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvVarPrivacyStore.swift; sourceTree = "<group>"; };
 		E5PRIV12 /* EnvVarRedactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvVarRedactor.swift; sourceTree = "<group>"; };
 		E5PV00002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -1583,6 +1586,7 @@
 				E5Q000012 /* cl100k_base.tiktoken */,
 				E5P000013 /* DeepLinkCoordinator.swift */,
 				E5P000014 /* DeepLinkRouter.swift */,
+				E5STG0003 /* ScheduledTaskSetupGuide.swift */,
 				E5QA0101 /* QuickActionRouter.swift */,
 				E5QA0103 /* QuickActionWorkflow.swift */,
 				E5CFG0011 /* ConfigAuditEntry.swift */,
@@ -2427,6 +2431,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB1000120F700000000000AA /* ContextPolicy.swift in Sources */,
+				E5STG0002 /* ScheduledTaskSetupGuide.swift in Sources */,
 				E5LD00002 /* ToolLoopDetector.swift in Sources */,
 				E5GWF0004 /* GeminiWireFormat.swift in Sources */,
 				E5JB10001 /* JiebaWrapper.mm in Sources */,
@@ -2761,6 +2766,7 @@
 				E5P000002 /* EnvironmentVariablesView.swift in Sources */,
 				E5P000003 /* DeepLinkCoordinator.swift in Sources */,
 				E5P000004 /* DeepLinkRouter.swift in Sources */,
+				E5STG0001 /* ScheduledTaskSetupGuide.swift in Sources */,
 				E5CFG0001 /* ConfigAuditEntry.swift in Sources */,
 				E5CFG0002 /* ConfigAuditLog.swift in Sources */,
 				E5CFG0003 /* MinisConfigPermissionStore.swift in Sources */,

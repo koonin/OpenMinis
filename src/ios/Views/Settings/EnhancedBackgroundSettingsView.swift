@@ -1,6 +1,6 @@
 import AVFoundation
-import AppIntents
 import SwiftUI
+import UIKit
 import UserNotifications
 
 struct EnhancedBackgroundSettingsView: View {
@@ -294,9 +294,12 @@ struct EnhancedBackgroundSettingsView: View {
 /// that system boundary explicit and keeps the setup path inside the app.
 struct ScheduledTasksSettingsView: View {
     @ObservedObject private var keepAlive = BackgroundKeepAliveManager.shared
+    @ObservedObject private var deepLink = DeepLinkCoordinator.shared
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
+    @State private var preparedPrompt: ScheduledTaskSetupGuide.PreparedPrompt?
+    @State private var didCopyPrompt = false
 
     var body: some View {
         List {
@@ -316,27 +319,84 @@ struct ScheduledTasksSettingsView: View {
                 }
             }
 
+            if let preparedPrompt {
+                Section {
+                    ScrollView(.vertical) {
+                        Text(verbatim: preparedPrompt.text)
+                            .font(.callout)
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 180)
+                    .accessibilityIdentifier("scheduled-task-prepared-prompt")
+
+                    Button {
+                        copyPreparedPrompt(preparedPrompt.text)
+                    } label: {
+                        Label {
+                            Text(
+                                didCopyPrompt
+                                    ? LocalizedStringKey("Copied")
+                                    : LocalizedStringKey("Copy Prompt")
+                            )
+                        } icon: {
+                            Image(systemName: didCopyPrompt ? "checkmark.circle.fill" : "doc.on.doc")
+                        }
+                    }
+                    .foregroundStyle(didCopyPrompt ? Color.green : Color.accentColor)
+                    .accessibilityIdentifier("scheduled-task-copy-prompt")
+                } header: {
+                    Text("Prepared Prompt")
+                } footer: {
+                    if preparedPrompt.wasTruncated {
+                        Text("This prompt was shortened to 8,000 characters. Review it before copying.")
+                    } else {
+                        Text("Review and copy this prompt, then paste it into the blue Prompt field in Send Prompt.")
+                    }
+                }
+            }
+
             Section {
                 setupStep(
                     1,
-                    title: "Create a Personal Automation",
-                    detail: "Open Shortcuts, choose Automation, then create a new Personal Automation."
+                    title: "Open Automation",
+                    detail: "Open Shortcuts, tap Automation, then tap the plus button."
                 )
                 setupStep(
                     2,
-                    title: "Choose the Trigger",
-                    detail: "Select Time of Day, then choose the time and daily, weekly, or monthly repeat rule."
+                    title: "Choose the Schedule",
+                    detail: "Select Time of Day, set the time and repeat rule, choose Run Immediately, then tap Next."
                 )
                 setupStep(
                     3,
-                    title: "Add a Minis Action",
-                    detail: "Search for Minis and add Send Prompt or Quick Task. Configure the prompt, session, and model."
+                    title: "Choose New Blank Automation",
+                    detail: "On the next screen, choose New Blank Automation. Do not select a suggested or existing shortcut."
                 )
                 setupStep(
                     4,
-                    title: "Run Automatically",
-                    detail: "Choose Run Immediately so the automation does not wait for confirmation."
+                    title: "Add Send Prompt",
+                    detail: "Tap Add Action, then choose Apps → Minis → Send Prompt."
                 )
+                setupStep(
+                    5,
+                    title: "Paste the Prompt",
+                    detail: "Tap the blue Prompt placeholder, paste the task, leave Wait for Result off, then tap Done."
+                )
+
+                Label {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Do Not Choose “Ask Minis”")
+                            .font(.subheadline.weight(.semibold))
+                        Text("Ask Minis opens the app and is not the fixed-prompt action for scheduled automations.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                .accessibilityIdentifier("scheduled-task-ask-minis-warning")
             } header: {
                 Text("Set Up in Shortcuts")
             } footer: {
@@ -346,12 +406,16 @@ struct ScheduledTasksSettingsView: View {
             Section {
                 HStack {
                     Spacer()
-                    ShortcutsLink()
-                        .shortcutsLinkStyle(.automaticOutline)
+                    Button {
+                        openShortcuts()
+                    } label: {
+                        Label("Open Shortcuts", systemImage: "arrow.up.forward.app")
+                    }
+                    .buttonStyle(.borderedProminent)
                     Spacer()
                 }
             } footer: {
-                Text("This opens Minis actions in Shortcuts. Switch to the Automation tab there to add the time trigger.")
+                Text("This opens Shortcuts in its last view. Tap Automation to create the time trigger.")
             }
 
             Section {
@@ -419,7 +483,11 @@ struct ScheduledTasksSettingsView: View {
         .navigationTitle("Scheduled Tasks")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            consumePreparedPrompt()
             await refreshNotificationStatus()
+        }
+        .onChange(of: deepLink.pendingScheduledTaskPrompt) { _ in
+            consumePreparedPrompt()
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
@@ -495,6 +563,24 @@ struct ScheduledTasksSettingsView: View {
     private func refreshNotificationStatus() async {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         notificationStatus = settings.authorizationStatus
+    }
+
+    private func consumePreparedPrompt() {
+        guard let pending = deepLink.pendingScheduledTaskPrompt else { return }
+        preparedPrompt = pending
+        didCopyPrompt = false
+        deepLink.pendingScheduledTaskPrompt = nil
+    }
+
+    private func copyPreparedPrompt(_ prompt: String) {
+        UIPasteboard.general.string = prompt
+        didCopyPrompt = true
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    private func openShortcuts() {
+        guard let url = URL(string: "shortcuts://") else { return }
+        openURL(url)
     }
 }
 

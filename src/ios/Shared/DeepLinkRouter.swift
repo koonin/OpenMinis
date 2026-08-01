@@ -34,7 +34,7 @@ extension Notification.Name {
 ///   minis://settings/logs
 ///   minis://settings/appearance
 ///   minis://settings/background
-///   minis://settings/scheduled-tasks             (alias: scheduled_tasks, automations)
+///   minis://settings/scheduled-tasks[?prompt=…]  (alias: scheduled_tasks, automations)
 ///   minis://settings/about
 ///   minis://settings/permissions
 ///   minis://settings/environments[?create_key=…&create_value=…&create_note=…]
@@ -48,7 +48,7 @@ enum DeepLinkRouter {
     @MainActor
     static func handle(url: URL, shareCoordinator: ShareCoordinator) {
         guard url.scheme == "minis", let host = url.host else {
-            deepLinkLog.info("ignored — non-minis or missing host: \(url.absoluteString)")
+            deepLinkLog.info("ignored — non-minis or missing host: \(ScheduledTaskSetupGuide.logDescription(for: url))")
             return
         }
         let coord = DeepLinkCoordinator.shared
@@ -82,7 +82,7 @@ enum DeepLinkRouter {
             // stack back to root before opening the target session.
             let id = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard !id.isEmpty else {
-                deepLinkLog.info("\(host) URL missing id: \(url.absoluteString)")
+                deepLinkLog.info("\(host) URL missing id: \(ScheduledTaskSetupGuide.logDescription(for: url))")
                 return
             }
             NotificationCenter.default.post(
@@ -95,7 +95,7 @@ enum DeepLinkRouter {
             handleSettings(url: url, coord: coord)
 
         default:
-            deepLinkLog.info("unknown host '\(host)': \(url.absoluteString)")
+            deepLinkLog.info("unknown host '\(host)': \(ScheduledTaskSetupGuide.logDescription(for: url))")
         }
     }
 
@@ -173,6 +173,12 @@ enum DeepLinkRouter {
             coord.pendingSettingsTarget = .background
 
         case "scheduled-tasks", "scheduled_tasks", "automations":
+            // A task-specific deep link may carry a prepared prompt. This is a
+            // one-shot draft for explicit review/copy in the destination view,
+            // not permission to write the pasteboard or create an automation.
+            // Assign nil for a plain link so stale content can never leak into
+            // a later setup visit.
+            coord.pendingScheduledTaskPrompt = ScheduledTaskSetupGuide.preparedPrompt(from: url)
             coord.pendingSettingsTarget = .scheduledTasks
 
         case "about":

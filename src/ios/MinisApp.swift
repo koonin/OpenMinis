@@ -200,7 +200,7 @@ struct MinisApp: App {
                 .environment(\.locale, appLanguage.isEmpty ? .current : Locale(identifier: appLanguage))
                 .dynamicTypeSize(fontSettings.appBaseScale.dynamicTypeSize)
                 .onOpenURL { url in
-                    shareLog.info("[Share] onOpenURL: \(url.absoluteString)")
+                    shareLog.info("[Share] onOpenURL: \(ScheduledTaskSetupGuide.logDescription(for: url))")
                     guard !SessionLockStore.shared.appIsLocked else {
                         shareLog.info("[Share] onOpenURL deferred — app is locked")
                         pendingURLWhileLocked = url

@@ -1877,9 +1877,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "- When the user says 'remember this' or similar, use memory_write to persist to the daily log. Only write to GLOBAL.md if the user specifically asks for global/persistent storage.\n"
             + "- What NOT to remember: passwords, API keys, tokens, secrets, or any sensitive credentials. Warn the user about the risk first; only proceed if they explicitly confirm.\n"
             + "- Keep memories concise, factual, and general-purpose — avoid noise that won't be useful later.\n\n"
-            + "Scheduled tasks: crontab / at / nohup loops will stop when the app is suspended, so in-app scheduled scripts may not run as expected. "
-            + "For recurring tasks that must fire beyond the current conversation, explain that iOS uses an Apple Shortcuts Personal Automation to trigger Minis, then provide the tappable setup link [Set Up Scheduled Tasks](minis://settings/scheduled-tasks). Do not claim Minis can create or inspect the user's Personal Automations. "
-            + "(Waiting or polling WITHIN the current turn is different — that is what shell_execute `delay` chains are for, per the shell_execute notes above.)"
+            + ScheduledTaskSetupGuide.agentGuidance
     }
 
     /// [T-memory-toggle-gates-injection-and-tools-ios]

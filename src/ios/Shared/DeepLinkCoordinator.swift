@@ -52,6 +52,12 @@ final class DeepLinkCoordinator: ObservableObject {
     /// through this published EnvVarCreate.
     @Published var pendingEnvVarCreate: EnvVarCreate?
 
+    /// Optional prompt carried by
+    /// `minis://settings/scheduled-tasks?prompt=...`. The scheduled-task
+    /// settings screen displays it for review and explicitly clears it after
+    /// consumption. It is never copied or executed without a user action.
+    @Published var pendingScheduledTaskPrompt: ScheduledTaskSetupGuide.PreparedPrompt?
+
     /// When non-nil, ContentView opens the SettingsSheet (if not already
     /// open) and SettingsSheet navigates its NavigationStack to the
     /// matching destination, then clears this back to nil. `.home` opens

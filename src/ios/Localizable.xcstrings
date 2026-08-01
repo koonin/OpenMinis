@@ -7549,6 +7549,110 @@
         }
       }
     },
+    "Ask Minis (Opens App)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minis fragen (öffnet die App)"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask Minis (Opens App)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demander à Minis (ouvre l’app)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minis に聞く（Appを開く）"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minis에게 묻기(App 열기)"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спросить Minis (откроет приложение)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "询问 Minis（打开 App）"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "詢問 Minis（開啟 App）"
+          }
+        }
+      }
+    },
+    "Ask ${prompt}" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minis ${prompt} fragen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask ${prompt}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demander ${prompt} à Minis"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${prompt} を Minis に聞く"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minis에게 ${prompt} 묻기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спросить Minis: ${prompt}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向 Minis 询问 ${prompt}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向 Minis 詢問 ${prompt}"
+          }
+        }
+      }
+    },
     "Ask Once" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -27476,6 +27580,58 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "獲取會話狀態"
+          }
+        }
+      }
+    },
+    "Get status for ${sessionID}" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Status für ${sessionID} abrufen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get status for ${sessionID}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obtenir l’état de ${sessionID}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${sessionID} のステータスを取得"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${sessionID} 상태 가져오기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Получить статус ${sessionID}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "获取 ${sessionID} 的状态"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取得 ${sessionID} 的狀態"
           }
         }
       }
@@ -55699,6 +55855,58 @@
         }
       }
     },
+    "Run ${task}" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${task} ausführen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run ${task}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exécuter ${task}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${task} を実行"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${task} 실행"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запустить ${task}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运行 ${task}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "執行 ${task}"
+          }
+        }
+      }
+    },
     "Running" : {
       "localizations" : {
         "de" : {
@@ -57314,6 +57522,58 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "發送提示"
+          }
+        }
+      }
+    },
+    "Send ${prompt}" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${prompt} senden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send ${prompt}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer ${prompt}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${prompt} を送信"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "${prompt} 보내기"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправить ${prompt}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送 ${prompt}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳送 ${prompt}"
           }
         }
       }
@@ -77038,178 +77298,376 @@
         }
       }
     },
-    "Create a Personal Automation" : {
+    "Open Automation" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Create a Personal Automation"
+            "value" : "Open Automation"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "创建个人自动化"
+            "value" : "打开“自动化”"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "建立個人自動化"
+            "value" : "開啟「自動化」"
           }
         }
       }
     },
-    "Open Shortcuts, choose Automation, then create a new Personal Automation." : {
+    "Open Shortcuts, tap Automation, then tap the plus button." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Open Shortcuts, choose Automation, then create a new Personal Automation."
+            "value" : "Open Shortcuts, tap Automation, then tap the plus button."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "打开“快捷指令”，选择“自动化”，然后新建个人自动化。"
+            "value" : "打开“快捷指令”，轻点“自动化”，然后轻点加号按钮。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "開啟「捷徑」，選擇「自動化」，然後建立個人自動化。"
+            "value" : "開啟「捷徑」，點一下「自動化」，然後點一下加號按鈕。"
           }
         }
       }
     },
-    "Choose the Trigger" : {
+    "Choose the Schedule" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choose the Trigger"
+            "value" : "Choose the Schedule"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择触发条件"
+            "value" : "选择时间计划"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選擇觸發條件"
+            "value" : "選擇時間排程"
           }
         }
       }
     },
-    "Select Time of Day, then choose the time and daily, weekly, or monthly repeat rule." : {
+    "Select Time of Day, set the time and repeat rule, choose Run Immediately, then tap Next." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Select Time of Day, then choose the time and daily, weekly, or monthly repeat rule."
+            "value" : "Select Time of Day, set the time and repeat rule, choose Run Immediately, then tap Next."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择“特定时间”，然后设置时间和每天、每周或每月重复规则。"
+            "value" : "选择“特定时间”，设置时间和重复规则，选择“立即运行”，然后轻点“下一步”。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選擇「特定時間」，然後設定時間和每天、每週或每月重複規則。"
+            "value" : "選擇「特定時間」，設定時間和重複規則，選擇「立即執行」，然後點一下「下一步」。"
           }
         }
       }
     },
-    "Add a Minis Action" : {
+    "Choose New Blank Automation" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add a Minis Action"
+            "value" : "Choose New Blank Automation"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "添加 Minis 操作"
+            "value" : "选择“新建空白自动化”"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "加入 Minis 動作"
+            "value" : "選擇「新增空白自動化操作」"
           }
         }
       }
     },
-    "Search for Minis and add Send Prompt or Quick Task. Configure the prompt, session, and model." : {
+    "On the next screen, choose New Blank Automation. Do not select a suggested or existing shortcut." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Search for Minis and add Send Prompt or Quick Task. Configure the prompt, session, and model."
+            "value" : "On the next screen, choose New Blank Automation. Do not select a suggested or existing shortcut."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索 Minis，添加“发送提示”或“快捷任务”，然后配置提示、会话和模型。"
+            "value" : "在下一个页面选择“新建空白自动化”。不要选择建议的自动化或现有快捷指令。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜尋 Minis，加入「傳送提示」或「快捷任務」，然後設定提示、會話和模型。"
+            "value" : "在下一個畫面選擇「新增空白自動化操作」。不要選擇建議的自動化操作或現有捷徑。"
           }
         }
       }
     },
-    "Run Automatically" : {
+    "Add Send Prompt" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Run Automatically"
+            "value" : "Add Send Prompt"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动运行"
+            "value" : "添加“发送提示”"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自動執行"
+            "value" : "加入「傳送提示」"
           }
         }
       }
     },
-    "Choose Run Immediately so the automation does not wait for confirmation." : {
+    "Tap Add Action, then choose Apps → Minis → Send Prompt." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choose Run Immediately so the automation does not wait for confirmation."
+            "value" : "Tap Add Action, then choose Apps → Minis → Send Prompt."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择“立即运行”，这样自动化无需等待确认。"
+            "value" : "轻点“添加操作”，然后选择“App”→“Minis”→“发送提示”。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "選擇「立即執行」，讓自動化不必等待確認。"
+            "value" : "點一下「加入動作」，然後選擇「App」→「Minis」→「傳送提示」。"
+          }
+        }
+      }
+    },
+    "Paste the Prompt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste the Prompt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "粘贴提示词"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "貼上提示詞"
+          }
+        }
+      }
+    },
+    "Tap the blue Prompt placeholder, paste the task, leave Wait for Result off, then tap Done." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap the blue Prompt placeholder, paste the task, leave Wait for Result off, then tap Done."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轻点蓝色的“提示”占位符，粘贴任务，保持“等待结果”关闭，然后轻点“完成”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "點一下藍色的「提示」暫存區，貼上任務，保持「等待結果」關閉，然後點一下「完成」。"
+          }
+        }
+      }
+    },
+    "Do Not Choose “Ask Minis”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Do Not Choose “Ask Minis”"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不要选择“询问 Minis”"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不要選擇「詢問 Minis」"
+          }
+        }
+      }
+    },
+    "Ask Minis opens the app and is not the fixed-prompt action for scheduled automations." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask Minis opens the app and is not the fixed-prompt action for scheduled automations."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“询问 Minis”会打开 App，不是定时自动化所需的固定提示词操作。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「詢問 Minis」會開啟 App，不是排程自動化所需的固定提示詞動作。"
+          }
+        }
+      }
+    },
+    "Prepared Prompt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prepared Prompt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "准备好的提示词"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "準備好的提示詞"
+          }
+        }
+      }
+    },
+    "Copy Prompt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Prompt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "复制提示词"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複製提示詞"
+          }
+        }
+      }
+    },
+    "This prompt was shortened to 8,000 characters. Review it before copying." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This prompt was shortened to 8,000 characters. Review it before copying."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此提示词已缩短为 8,000 个字符。复制前请先检查。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此提示詞已縮短為 8,000 個字元。複製前請先檢查。"
+          }
+        }
+      }
+    },
+    "Review and copy this prompt, then paste it into the blue Prompt field in Send Prompt." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review and copy this prompt, then paste it into the blue Prompt field in Send Prompt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "检查并复制此提示词，然后粘贴到“发送提示”操作中蓝色的“提示”字段。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "檢查並複製此提示詞，然後貼到「傳送提示」動作中藍色的「提示」欄位。"
+          }
+        }
+      }
+    },
+    "Open Shortcuts" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Shortcuts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开快捷指令"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟捷徑"
           }
         }
       }
@@ -77258,24 +77716,24 @@
         }
       }
     },
-    "This opens Minis actions in Shortcuts. Switch to the Automation tab there to add the time trigger." : {
+    "This opens Shortcuts in its last view. Tap Automation to create the time trigger." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This opens Minis actions in Shortcuts. Switch to the Automation tab there to add the time trigger."
+            "value" : "This opens Shortcuts in its last view. Tap Automation to create the time trigger."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "这会在“快捷指令”中打开 Minis 操作。请切换到“自动化”标签页添加时间触发条件。"
+            "value" : "这会打开“快捷指令”上次停留的页面。请轻点“自动化”来创建时间触发条件。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "這會在「捷徑」中開啟 Minis 動作。請切換到「自動化」分頁加入時間觸發條件。"
+            "value" : "這會開啟「捷徑」上次停留的畫面。請點一下「自動化」來建立時間觸發條件。"
           }
         }
       }
