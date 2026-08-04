@@ -3,13 +3,10 @@ package com.openminis.app.service
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.suspendCancellableCoroutine
-import java.util.LinkedList
-import kotlin.coroutines.Continuation
-import kotlin.coroutines.resume
+import kotlinx.coroutines.sync.Semaphore
 
 /**
- * Limits concurrent agent loop sessions to [maxConcurrent].
+ * Limits concurrent agent loop sessions to [MAX_CONCURRENT].
  * Excess sessions are suspended in a FIFO queue until a slot frees up.
  */
 object SessionConcurrencyManager {
@@ -21,42 +18,75 @@ object SessionConcurrencyManager {
     private val _suspendedSessions = MutableStateFlow<List<String>>(emptyList())
     val suspendedSessions: StateFlow<List<String>> = _suspendedSessions.asStateFlow()
 
-    private data class Waiter(val sessionId: String, val continuation: Continuation<Unit>)
-    private val waitQueue = LinkedList<Waiter>()
+    // Coroutine Semaphore owns the atomic permit count and provides FIFO
+    // suspension. The old StateFlow size check/update was not atomic, so three
+    // workers starting together could all observe the same free slot and push
+    // the process above MAX_CONCURRENT.
+    private val slots = Semaphore(MAX_CONCURRENT)
+    private val stateLock = Any()
+    // Public state is session-oriented, while permits are acquisition-oriented:
+    // the same session can briefly overlap two agent-loop entry points. Track
+    // lease counts internally so Set de-duplication never loses a permit.
+    private val runningLeaseCounts = linkedMapOf<String, Int>()
+    private val suspendedLeaseCounts = linkedMapOf<String, Int>()
 
     suspend fun acquireSlot(sessionId: String) {
-        if (_runningSessions.value.size < MAX_CONCURRENT) {
-            _runningSessions.value = _runningSessions.value + sessionId
-            return
+        val acquiredImmediately = slots.tryAcquire()
+        if (!acquiredImmediately) {
+            synchronized(stateLock) {
+                suspendedLeaseCounts.increment(sessionId)
+                publishSuspendedSessionsLocked()
+            }
         }
-
-        // Queue and suspend
-        _suspendedSessions.value = _suspendedSessions.value + sessionId
-        suspendCancellableCoroutine { cont ->
-            synchronized(this@SessionConcurrencyManager) {
-                waitQueue.add(Waiter(sessionId, cont))
-            }
-            cont.invokeOnCancellation {
-                synchronized(this@SessionConcurrencyManager) {
-                    waitQueue.removeAll { it.sessionId == sessionId }
-                    _suspendedSessions.value = _suspendedSessions.value - sessionId
+        try {
+            if (!acquiredImmediately) slots.acquire()
+            synchronized(stateLock) {
+                if (!acquiredImmediately) {
+                    suspendedLeaseCounts.decrement(sessionId)
+                    publishSuspendedSessionsLocked()
                 }
+                runningLeaseCounts.increment(sessionId)
+                publishRunningSessionsLocked()
             }
+        } catch (t: Throwable) {
+            if (!acquiredImmediately) synchronized(stateLock) {
+                suspendedLeaseCounts.decrement(sessionId)
+                publishSuspendedSessionsLocked()
+            }
+            throw t
         }
     }
 
-    @Synchronized
     fun releaseSlot(sessionId: String) {
-        _runningSessions.value = _runningSessions.value - sessionId
-
-        // Resume next waiter
-        val next = synchronized(this) { waitQueue.pollFirst() }
-        if (next != null) {
-            _suspendedSessions.value = _suspendedSessions.value - next.sessionId
-            _runningSessions.value = _runningSessions.value + next.sessionId
-            next.continuation.resume(Unit)
+        val didOwnSlot = synchronized(stateLock) {
+            val owned = (runningLeaseCounts[sessionId] ?: 0) > 0
+            if (owned) {
+                runningLeaseCounts.decrement(sessionId)
+                publishRunningSessionsLocked()
+            }
+            owned
         }
+        // Ignore duplicate/stale release calls; over-releasing a Semaphore
+        // throws and would corrupt the global admission boundary.
+        if (didOwnSlot) slots.release()
     }
 
     fun isSuspended(sessionId: String): Boolean = sessionId in _suspendedSessions.value
+
+    private fun MutableMap<String, Int>.increment(sessionId: String) {
+        this[sessionId] = (this[sessionId] ?: 0) + 1
+    }
+
+    private fun MutableMap<String, Int>.decrement(sessionId: String) {
+        val remaining = (this[sessionId] ?: 0) - 1
+        if (remaining > 0) this[sessionId] = remaining else remove(sessionId)
+    }
+
+    private fun publishRunningSessionsLocked() {
+        _runningSessions.value = runningLeaseCounts.keys.toSet()
+    }
+
+    private fun publishSuspendedSessionsLocked() {
+        _suspendedSessions.value = suspendedLeaseCounts.keys.toList()
+    }
 }

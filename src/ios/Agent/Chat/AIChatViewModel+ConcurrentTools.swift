@@ -16,6 +16,36 @@ import UIKit
 
 private let ctLogger = AppLogger(category: "AIChatVM")
 
+/// Global cap across parent sessions. The normal tool dispatcher can run ten
+/// tools concurrently, but worker sessions are heavier (each owns a full agent
+/// loop and provider stream), so delegation has its own smaller gate.
+private actor DelegatedWorkerConcurrencyGate {
+    static let shared = DelegatedWorkerConcurrencyGate()
+    private let limit = 3
+    private var inFlight = 0
+
+    /// Returns false when the caller's end-to-end deadline expires while
+    /// queued. There is no stored waiter to leak: cancellation interrupts the
+    /// short sleep and the task leaves the queue immediately.
+    func acquire(until deadline: Date) async throws -> Bool {
+        while inFlight >= limit {
+            try Task.checkCancellation()
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            let sleepNanos = UInt64(min(remaining, 0.05) * 1_000_000_000)
+            try await Task.sleep(nanoseconds: max(1, sleepNanos))
+        }
+        try Task.checkCancellation()
+        guard Date() < deadline else { return false }
+        inFlight += 1
+        return true
+    }
+
+    func release() {
+        inFlight = max(0, inFlight - 1)
+    }
+}
+
 extension AIChatViewModel {
 
     /// Hard cap on simultaneous in-flight tool executions per agent turn.
@@ -75,6 +105,313 @@ extension AIChatViewModel {
         let cancelled: Bool
     }
 
+    struct DelegatedWorkerRunResult {
+        let status: String
+        let sessionId: String?
+        let modelName: String?
+        let workerGroupId: String?
+        let workerGroupName: String?
+        let output: String
+        let error: String?
+
+        var success: Bool { status == "success" }
+
+        init(
+            status: String,
+            sessionId: String?,
+            modelName: String?,
+            workerGroupId: String? = nil,
+            workerGroupName: String? = nil,
+            output: String,
+            error: String?
+        ) {
+            self.status = status
+            self.sessionId = sessionId
+            self.modelName = modelName
+            self.workerGroupId = workerGroupId
+            self.workerGroupName = workerGroupName
+            self.output = output
+            self.error = error
+        }
+
+        func jsonString() -> String {
+            var object: [String: Any] = [
+                "status": status,
+                "session_id": sessionId ?? NSNull(),
+                "worker_group_id": workerGroupId ?? NSNull(),
+                "worker_group": workerGroupName ?? NSNull(),
+                "model_name": modelName ?? NSNull(),
+                "output": output,
+                "error": error ?? NSNull(),
+            ]
+            guard JSONSerialization.isValidJSONObject(object),
+                  let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+                  let string = String(data: data, encoding: .utf8) else {
+                return "{\"status\":\"error\",\"session_id\":null,\"worker_group_id\":null,\"worker_group\":null,\"model_name\":null,\"output\":\"\",\"error\":\"Could not encode worker result\"}"
+            }
+            return string
+        }
+    }
+
+    /// Run one full, independently persisted worker session. The group and a
+    /// concrete text model are resolved before creating the session, and the
+    /// binding is then written explicitly so the worker can never fall through
+    /// to Default Primary.
+    func executeDelegatedWorker(arguments: [String: Any]) async throws -> DelegatedWorkerRunResult {
+        guard !isDelegatedWorkerSession else {
+            return DelegatedWorkerRunResult(
+                status: "error", sessionId: nil, modelName: nil, output: "",
+                error: "Delegated workers cannot delegate further."
+            )
+        }
+        let taskText = (arguments["task"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !taskText.isEmpty else {
+            return DelegatedWorkerRunResult(
+                status: "error", sessionId: nil, modelName: nil, output: "",
+                error: "Missing required task."
+            )
+        }
+
+        let requestedTimeout = arguments["timeout_seconds"] as? Int ?? 180
+        let timeoutSeconds = min(max(requestedTimeout, 10), 900)
+        // The public timeout is wall-clock time for the whole delegation,
+        // including the dedicated-worker gate and session setup.
+        let deadline = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
+
+        let routeKey = UUID().uuidString
+        guard let worker = resolvedWorkerConfiguration(for: routeKey) else {
+            return DelegatedWorkerRunResult(
+                status: "error", sessionId: nil, modelName: nil, output: "",
+                error: "Worker Group is missing or has no enabled, credentialed text-output model. Configure it in Settings → Model Groups."
+            )
+        }
+
+        do {
+            guard try await DelegatedWorkerConcurrencyGate.shared.acquire(until: deadline) else {
+                return DelegatedWorkerRunResult(
+                    status: "timeout", sessionId: nil, modelName: nil,
+                    workerGroupId: worker.group.id, workerGroupName: worker.group.name,
+                    output: "", error: "Worker exceeded the \(timeoutSeconds)-second timeout while waiting to start."
+                )
+            }
+        } catch is CancellationError {
+            return DelegatedWorkerRunResult(
+                status: "cancelled", sessionId: nil, modelName: nil,
+                workerGroupId: worker.group.id, workerGroupName: worker.group.name,
+                output: "", error: "Worker was cancelled before it started."
+            )
+        }
+        do {
+            let result = try await performDelegatedWorker(
+                arguments: arguments,
+                taskText: taskText,
+                group: worker.group,
+                entryId: worker.entryId,
+                timeoutSeconds: timeoutSeconds,
+                deadline: deadline
+            )
+            await DelegatedWorkerConcurrencyGate.shared.release()
+            return result
+        } catch is CancellationError {
+            await DelegatedWorkerConcurrencyGate.shared.release()
+            return DelegatedWorkerRunResult(
+                status: "cancelled", sessionId: nil, modelName: nil,
+                workerGroupId: worker.group.id, workerGroupName: worker.group.name,
+                output: "", error: "Worker was cancelled."
+            )
+        } catch {
+            await DelegatedWorkerConcurrencyGate.shared.release()
+            throw error
+        }
+    }
+
+    private func performDelegatedWorker(
+        arguments: [String: Any],
+        taskText: String,
+        group: ModelGroup,
+        entryId: String,
+        timeoutSeconds: Int,
+        deadline: Date
+    ) async throws -> DelegatedWorkerRunResult {
+        try Task.checkCancellation()
+        guard Date() < deadline else {
+            return DelegatedWorkerRunResult(
+                status: "timeout", sessionId: nil, modelName: nil,
+                workerGroupId: group.id, workerGroupName: group.name, output: "",
+                error: "Worker exceeded the \(timeoutSeconds)-second timeout before session creation."
+            )
+        }
+        let store = ProviderConfigStore.shared
+        guard var entry = store.entry(for: entryId) else {
+            return DelegatedWorkerRunResult(
+                status: "error", sessionId: nil, modelName: nil,
+                workerGroupId: group.id, workerGroupName: group.name, output: "",
+                error: "The resolved worker model is no longer available."
+            )
+        }
+
+        let title = ((arguments["tool_title"] as? String) ?? "Delegated task")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let expected = (arguments["expected_output"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let workerVM = ViewModelCache.shared.createDraft()
+        workerVM.sessionSource = Self.delegatedWorkerSessionSource
+        workerVM.initialGroupId = group.id
+        workerVM.selectedModel = entry.model
+
+        let workerSessionId = await workerVM.ensureSessionReturningId(makeActive: false)
+
+        if Task.isCancelled {
+            workerVM.cancel()
+            SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
+            return DelegatedWorkerRunResult(
+                status: "cancelled", sessionId: workerSessionId,
+                modelName: entry.model.displayName,
+                workerGroupId: group.id, workerGroupName: group.name, output: "",
+                error: "Worker was cancelled during session setup."
+            )
+        }
+        guard Date() < deadline else {
+            workerVM.cancel()
+            SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
+            return DelegatedWorkerRunResult(
+                status: "timeout", sessionId: workerSessionId,
+                modelName: entry.model.displayName,
+                workerGroupId: group.id, workerGroupName: group.name, output: "",
+                error: "Worker exceeded the \(timeoutSeconds)-second timeout during session setup."
+            )
+        }
+
+        guard let confirmedRoute = resolvedWorkerConfiguration(for: workerSessionId),
+              confirmedRoute.group.id == group.id,
+              let confirmedEntry = store.entry(for: confirmedRoute.entryId) else {
+            return DelegatedWorkerRunResult(
+                status: "error", sessionId: workerSessionId,
+                modelName: entry.model.displayName,
+                workerGroupId: group.id, workerGroupName: group.name, output: "",
+                error: "Worker Group changed before the task could start."
+            )
+        }
+        entry = confirmedEntry
+        let boundGroup = confirmedRoute.group
+        workerVM.selectedModel = entry.model
+
+        // Overwrite the new-session default binding with the exact worker
+        // route resolved above. This is the fail-closed boundary that prevents
+        // a concurrent config change from silently running the parent model.
+        store.setBinding(SessionModelBinding(
+            sessionId: workerSessionId,
+            primarySource: .group(groupId: boundGroup.id, resolvedEntryId: confirmedRoute.entryId),
+            subModelSource: nil
+        ), for: workerSessionId)
+        if let level = boundGroup.defaultThinkingLevel {
+            var inference = store.inferenceConfig(for: workerSessionId) ?? SessionInferenceConfig()
+            inference.thinkingLevel = level
+            store.setInferenceConfig(inference, for: workerSessionId)
+        }
+        await ChatStore.shared.updateSessionModelId(workerSessionId, modelId: entry.model.id)
+
+        // Workers receive only explicit task context, never persistent memory.
+        workerVM.memoryEnabled = false
+        await ChatStore.shared.setMemoryEnabled(sessionId: workerSessionId, enabled: false)
+        let persistedTitle = title.isEmpty ? "Delegated task" : String(title.prefix(80))
+        await ChatStore.shared.updateSessionTitle(workerSessionId, title: persistedTitle)
+        SessionActivityTracker.shared.updateSessionTitle(workerSessionId, title: persistedTitle)
+
+        var prompt = "Assigned task:\n\(taskText)"
+        if !expected.isEmpty {
+            prompt += "\n\nExpected output:\n\(expected)"
+        }
+        prompt += "\n\nReturn the completed result and supporting evidence to the parent agent."
+
+        // Cancellation can arrive during any of the async persistence calls
+        // above. It must be observed before the paid provider request starts.
+        if Task.isCancelled || userDidCancel {
+            workerVM.cancel()
+            SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
+            return DelegatedWorkerRunResult(
+                status: "cancelled", sessionId: workerSessionId,
+                modelName: entry.model.displayName,
+                workerGroupId: boundGroup.id, workerGroupName: boundGroup.name,
+                output: "", error: "Worker was cancelled before dispatch."
+            )
+        }
+        guard Date() < deadline else {
+            workerVM.cancel()
+            SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
+            return DelegatedWorkerRunResult(
+                status: "timeout", sessionId: workerSessionId,
+                modelName: entry.model.displayName,
+                workerGroupId: boundGroup.id, workerGroupName: boundGroup.name,
+                output: "", error: "Worker exceeded the \(timeoutSeconds)-second timeout before dispatch."
+            )
+        }
+        workerVM.inputText = prompt
+        workerVM.send()
+
+        do {
+            while workerVM.isProcessing {
+                try Task.checkCancellation()
+                if Date() >= deadline {
+                    workerVM.cancel()
+                    SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
+                    return DelegatedWorkerRunResult(
+                        status: "timeout", sessionId: workerSessionId,
+                        modelName: entry.model.displayName,
+                        workerGroupId: boundGroup.id, workerGroupName: boundGroup.name, output: "",
+                        error: "Worker exceeded the \(timeoutSeconds)-second timeout and was stopped."
+                    )
+                }
+                let remaining = deadline.timeIntervalSinceNow
+                let sleepNanos = UInt64(min(max(remaining, 0.001), 0.2) * 1_000_000_000)
+                try await Task.sleep(nanoseconds: sleepNanos)
+            }
+            try Task.checkCancellation()
+        } catch is CancellationError {
+            workerVM.cancel()
+            SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
+            return DelegatedWorkerRunResult(
+                status: "cancelled", sessionId: workerSessionId,
+                modelName: entry.model.displayName,
+                workerGroupId: boundGroup.id, workerGroupName: boundGroup.name,
+                output: "", error: "Worker was cancelled and stopped."
+            )
+        }
+
+        let assistant = workerVM.messages.last(where: { $0.role == .assistant })
+        let responseText = assistant?.blocks
+            .filter { $0.kind == .text }
+            .map(\.content)
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let failure = assistant?.error ?? workerVM.errorMessage
+        if let failure, !failure.isEmpty {
+            return DelegatedWorkerRunResult(
+                status: "error", sessionId: workerSessionId,
+                modelName: entry.model.displayName,
+                workerGroupId: boundGroup.id, workerGroupName: boundGroup.name,
+                output: responseText,
+                error: failure
+            )
+        }
+        guard !responseText.isEmpty else {
+            return DelegatedWorkerRunResult(
+                status: "error", sessionId: workerSessionId,
+                modelName: entry.model.displayName,
+                workerGroupId: boundGroup.id, workerGroupName: boundGroup.name, output: "",
+                error: "Worker completed without a usable text response."
+            )
+        }
+        return DelegatedWorkerRunResult(
+            status: "success", sessionId: workerSessionId,
+            modelName: entry.model.displayName,
+            workerGroupId: boundGroup.id, workerGroupName: boundGroup.name,
+            output: responseText, error: nil
+        )
+    }
+
     /// Execute a single tool use, returning a self-contained outcome.
     /// All mutations to `messages[msgIdx].blocks[blockIdx]` happen inside
     /// (the VM is @MainActor so this is safe even when invoked from
@@ -109,6 +446,29 @@ extension AIChatViewModel {
                 snapshotEntry: (toolName: tu.name, snapshot: cancelSnap),
                 snapshotItem: item,
                 cancelled: true
+            )
+        }
+
+        // Fail closed at execution time as well as schema time. Persisted or
+        // hallucinated tool calls can bypass schema lookup/preflight, so a
+        // delegated session must never reach a mutating native switch case.
+        if isDelegatedWorkerSession && !Self.delegatedWorkerToolNames.contains(tu.name) {
+            let blocked = "Error: Delegated workers are read-only and cannot execute '\(tu.name)'."
+            if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                messages[msgIdx].blocks[blockIdx].content = blocked
+                messages[msgIdx].blocks[blockIdx].toolStatus = .failed(message: blocked)
+            }
+            let snapshot = ToolSnapshot(type: .text, text: blocked, mediaRef: nil, duration: nil)
+            let item = ToolSnapshotItem(
+                id: tu.id, toolName: tu.name, snapshot: snapshot,
+                mediaResolver: await ChatStore.shared.mediaFileURLResolver()
+            )
+            return ToolExecOutcome(
+                toolId: tu.id, toolName: tu.name,
+                resultPart: .toolResult(id: tu.id, name: tu.name, content: blocked, isError: true),
+                snapshotEntry: (toolName: tu.name, snapshot: snapshot),
+                snapshotItem: item,
+                cancelled: false
             )
         }
 
@@ -215,6 +575,14 @@ extension AIChatViewModel {
 
         do {
         switch tu.name {
+        case "delegate_task":
+            let delegation = try await executeDelegatedWorker(arguments: toolArgs)
+            toolOutput = delegation.jsonString()
+            toolSuccess = delegation.success
+            if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                messages[msgIdx].blocks[blockIdx].content = toolOutput
+            }
+
         case "shell_execute":
             let (command, timeout, delay) = parseToolInput(from: argsJson)
 
@@ -398,6 +766,15 @@ extension AIChatViewModel {
             toolOutput = redactedOut
 
         case "file_read":
+            let requestedPath = toolArgs["path"] as? String ?? ""
+            if isDelegatedWorkerSession && !Self.delegatedWorkerMayRead(path: requestedPath) {
+                toolOutput = "Error: Delegated workers may read only task artifacts under approved /var/minis workspace namespaces. Memory, skills, credentials, and other paths are blocked."
+                toolSuccess = false
+                if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                    messages[msgIdx].blocks[blockIdx].content = toolOutput
+                }
+                break
+            }
             let fileResult: FileToolResult
             do {
                 fileResult = try await executeFileRead(from: argsJson)
@@ -460,10 +837,23 @@ extension AIChatViewModel {
         case "browser_use":
             var browserResult: BrowserActionResult
             if let input = BrowserActionInput.parse(from: argsJson) {
-                do {
-                    browserResult = try await browserTabPool.execute(action: input)
-                } catch {
-                    browserResult = .error(error.localizedDescription)
+                if isDelegatedWorkerSession
+                    && !Self.delegatedWorkerBrowserActions.contains(input.action) {
+                    browserResult = .error(
+                        "Delegated workers cannot perform browser action '\(input.action.rawValue)'."
+                    )
+                } else if isDelegatedWorkerSession,
+                          input.action == .navigate,
+                          !Self.delegatedWorkerMayNavigate(to: input.url) {
+                    browserResult = .error(
+                        "Delegated workers may navigate only to absolute http:// or https:// URLs. Local, data, file, Minis, and action schemes are blocked."
+                    )
+                } else {
+                    do {
+                        browserResult = try await browserTabPool.execute(action: input)
+                    } catch {
+                        browserResult = .error(error.localizedDescription)
+                    }
                 }
             } else {
                 browserResult = .error("Invalid browser_use input. Required: 'action' parameter.")
@@ -552,7 +942,25 @@ extension AIChatViewModel {
 
         case "read_image":
             let pathArg = toolArgs["path"] as? String ?? ""
+            if isDelegatedWorkerSession && !Self.delegatedWorkerMayRead(path: pathArg) {
+                toolOutput = "Error: Delegated workers may inspect images only under approved /var/minis workspace namespaces."
+                toolSuccess = false
+                if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                    messages[msgIdx].blocks[blockIdx].content = toolOutput
+                }
+                break
+            }
             let resolvedURL = await resolveMinisPath(pathArg)
+            if isDelegatedWorkerSession,
+               let resolvedURL,
+               !delegatedWorkerResolvedReadURLIsAllowed(resolvedURL, requestedPath: pathArg) {
+                toolOutput = "Error: Resolved image escapes this worker session's allowed roots."
+                toolSuccess = false
+                if msgIdx < messages.count, blockIdx < messages[msgIdx].blocks.count {
+                    messages[msgIdx].blocks[blockIdx].content = toolOutput
+                }
+                break
+            }
             ctLogger.info("[read_image] pathArg=\(pathArg) resolvedURL=\(resolvedURL?.path ?? "nil") exists=\(resolvedURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)")
             if let resolvedURL {
                 let dataOK = (try? Data(contentsOf: resolvedURL)) != nil

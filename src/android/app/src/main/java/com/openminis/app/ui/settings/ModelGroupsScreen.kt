@@ -228,7 +228,7 @@ fun ModelGroupsScreen(
                     }
                 }
 
-                // T313 — Section 2 (Defaults). Two dropdown rows in one card
+                // T313 — Section 2 (Defaults). Group bindings share one card
                 // with SectionDivider between them, footer caption outside.
                 item("defaults_section_spacer") {
                     Spacer(modifier = Modifier.height(SectionDesign.SectionTopGap))
@@ -251,6 +251,13 @@ fun ModelGroupsScreen(
                             selectedId = config.defaultSubGroupId,
                             onSelect = { providerRepository.defaultSubGroupId = it },
                         )
+                        SectionDivider()
+                        GroupDropdown(
+                            label = stringResource(R.string.model_groups_worker_group),
+                            groups = groups,
+                            selectedId = config.workerGroupId,
+                            onSelect = { providerRepository.workerGroupId = it },
+                        )
                         // [T-android-provider-voice] Voice group bindings —
                         // mirrors iOS voiceInputGroupId / voiceOutputGroupId.
                         SectionDivider()
@@ -271,7 +278,8 @@ fun ModelGroupsScreen(
                 }
                 item("defaults_section_footer") {
                     SectionFooter(
-                        text = stringResource(R.string.model_groups_primary_is_used_for_main_agent_tasks_sub),
+                        text = stringResource(R.string.model_groups_primary_is_used_for_main_agent_tasks_sub) +
+                            "\n" + stringResource(R.string.model_groups_worker_group_footer),
                     )
                 }
             }

@@ -281,39 +281,84 @@ final class SessionConcurrencyManager: ObservableObject {
     let maxConcurrent: Int = 5
 
     @Published private(set) var runningSessions: Set<String> = []
+    /// Number of acquired processing leases. Unlike `runningSessions.count`,
+    /// this counts overlapping runs for the same session independently.
+    @Published private(set) var activeLeaseCount: Int = 0
     @Published private(set) var suspendedSessions: [String] = []
-    private var waiters: [(id: String, continuation: CheckedContinuation<Void, Never>)] = []
+    private var runningLeaseCounts: [String: Int] = [:]
+    private struct Waiter {
+        let token: UUID
+        let id: String
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+    private var waiters: [Waiter] = []
 
     /// Acquire a processing slot. Returns immediately if under limit, otherwise suspends until a slot opens.
     func acquireSlot(sessionId: String) async throws {
-        if runningSessions.count < maxConcurrent {
-            runningSessions.insert(sessionId)
+        try Task.checkCancellation()
+        if activeLeaseCount < maxConcurrent {
+            grantLease(sessionId: sessionId)
             return
         }
 
-        // Over limit — suspend and wait
-        suspendedSessions.append(sessionId)
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            waiters.append((id: sessionId, continuation: continuation))
+        // Over limit — suspend and wait. The token makes cancellation target
+        // exactly this acquire attempt, even if the same session later queues
+        // again. A released slot is reserved before its continuation resumes.
+        let token = UUID()
+        let granted = await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                    return
+                }
+                suspendedSessions.append(sessionId)
+                waiters.append(Waiter(token: token, id: sessionId, continuation: continuation))
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelWait(token: token)
+            }
+        })
+        guard granted else { throw CancellationError() }
+
+        // Cancellation can race with the atomic handoff. In that case give
+        // the already-reserved slot to the next waiter before propagating.
+        do {
+            try Task.checkCancellation()
+        } catch {
+            releaseSlot(sessionId: sessionId)
+            throw error
         }
-        // After resuming, check if the task was cancelled while waiting
-        try Task.checkCancellation()
-        runningSessions.insert(sessionId)
     }
 
     /// Release a processing slot and resume the next waiting session (FIFO).
     func releaseSlot(sessionId: String) {
-        runningSessions.remove(sessionId)
+        // Every acquire owns one counted lease, including overlapping runs for
+        // the same session. Releasing an older run decrements only one lease;
+        // the session stays active while a newer run still owns another.
+        guard let count = runningLeaseCounts[sessionId], count > 0 else { return }
+        if count == 1 {
+            runningLeaseCounts[sessionId] = nil
+            runningSessions.remove(sessionId)
+        } else {
+            runningLeaseCounts[sessionId] = count - 1
+        }
+        activeLeaseCount = max(0, activeLeaseCount - 1)
         resumeNextWaiter()
     }
 
     /// Cancel a suspended session's wait so cancellation can propagate.
     func cancelWait(sessionId: String) {
-        suspendedSessions.removeAll { $0 == sessionId }
-        if let idx = waiters.firstIndex(where: { $0.id == sessionId }) {
-            let waiter = waiters.remove(at: idx)
-            waiter.continuation.resume()
-        }
+        // The task-cancellation handler normally cancels by unique waiter
+        // token. This compatibility API cannot identify an acquisition from
+        // sessionId alone, so never let an older active run cancel a newer
+        // same-session waiter. If there is no active lease, cancelling the
+        // oldest FIFO waiter preserves the legacy behavior safely.
+        guard runningLeaseCounts[sessionId, default: 0] == 0,
+              let idx = waiters.firstIndex(where: { $0.id == sessionId }) else { return }
+        let waiter = waiters.remove(at: idx)
+        removeOneSuspendedSession(sessionId)
+        waiter.continuation.resume(returning: false)
     }
 
     /// Whether a session is currently suspended waiting for a slot.
@@ -324,8 +369,29 @@ final class SessionConcurrencyManager: ObservableObject {
     private func resumeNextWaiter() {
         guard !waiters.isEmpty else { return }
         let next = waiters.removeFirst()
-        suspendedSessions.removeAll { $0 == next.id }
-        next.continuation.resume()
+        removeOneSuspendedSession(next.id)
+        // Reserve atomically on the MainActor before waking the waiter. This
+        // prevents another acquire from stealing the same capacity window.
+        grantLease(sessionId: next.id)
+        next.continuation.resume(returning: true)
+    }
+
+    private func grantLease(sessionId: String) {
+        runningLeaseCounts[sessionId, default: 0] += 1
+        activeLeaseCount += 1
+        runningSessions.insert(sessionId)
+    }
+
+    private func cancelWait(token: UUID) {
+        guard let idx = waiters.firstIndex(where: { $0.token == token }) else { return }
+        let waiter = waiters.remove(at: idx)
+        removeOneSuspendedSession(waiter.id)
+        waiter.continuation.resume(returning: false)
+    }
+
+    private func removeOneSuspendedSession(_ sessionId: String) {
+        guard let idx = suspendedSessions.firstIndex(of: sessionId) else { return }
+        suspendedSessions.remove(at: idx)
     }
 }
 
@@ -559,4 +625,3 @@ final class ViewModelCache {
     /// Set by MoveToSessionSheet, consumed by AIChatView on appear.
     static var pendingTransfer: PendingTransfer?
 }
-

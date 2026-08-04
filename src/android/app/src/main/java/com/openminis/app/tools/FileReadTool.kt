@@ -25,7 +25,12 @@ object FileReadTool {
         propertyOrdering = listOf("tool_title", "path", "offset", "lines", "direction", "max_length"),
     )
 
-    fun execute(argsJson: String, sessionId: String, context: Context): ToolExecutionResult {
+    fun execute(
+        argsJson: String,
+        sessionId: String,
+        context: Context,
+        readOnlyWorker: Boolean = false,
+    ): ToolExecutionResult {
         return try {
             val args = JSONObject(argsJson)
             val path = args.optString("path", "")
@@ -50,9 +55,21 @@ object FileReadTool {
                 return ToolExecutionResult("Error: 'path' is required", false, toolTitle = toolTitle)
             }
 
-            // T123: per-session resolver — see FileWriteTool for rationale.
-            val file = PRootKernel.resolveSessionHostPath(sessionId, path, context)
-                ?: return ToolExecutionResult("Error: Cannot resolve path: $path", false, toolTitle = toolTitle)
+            // Delegated workers never touch the general resolver: it can fall
+            // back to global binds/rootfs. The worker policy returns the exact
+            // canonical File whose session/shared containment was verified.
+            val file = if (readOnlyWorker) {
+                DelegatedWorkerReadPathPolicy.resolve(path, sessionId, context)?.file
+                    ?: return ToolExecutionResult(
+                        "Error: Path is outside the delegated worker read scope: $path",
+                        false,
+                        toolTitle = toolTitle,
+                    )
+            } else {
+                // T123: per-session resolver — see FileWriteTool for rationale.
+                PRootKernel.resolveSessionHostPath(sessionId, path, context)
+                    ?: return ToolExecutionResult("Error: Cannot resolve path: $path", false, toolTitle = toolTitle)
+            }
 
             if (!file.exists()) {
                 return ToolExecutionResult("Error: File not found: $path", false, toolTitle = toolTitle)

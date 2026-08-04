@@ -186,6 +186,18 @@ extension AIChatViewModel {
             hasCompletedInitialLoad = true
         }
 
+        // Restore execution-policy metadata before loading/building messages.
+        // An empty delegated-worker session is a normal outcome after timeout,
+        // cancellation, or a crash; restoring source below the empty-message
+        // early return would silently reopen it as a full-trust parent session.
+        if let session = await ChatStore.shared.getSession(sessionId) {
+            sessionSource = session.source
+            cachedSessionModelId = session.modelId
+            if session.title != nil {
+                titleGenAttempts = 3
+            }
+        }
+
         // Loop detector state is per-runtime; reload of a session clears it.
         toolLoopDetector.reset()
 
@@ -739,20 +751,6 @@ extension AIChatViewModel {
         let mountElapsed = (CFAbsoluteTimeGetCurrent() - mountStart) * 1000
         logger.info("🔍MOUNT loadSession Phase4 done in \(String(format: "%.1f", mountElapsed))ms")
 
-        // If the session already has a title, skip further generation attempts.
-        // Also cache `session.modelId` so resolveCurrentEntry can fall back to
-        // the session's persisted model when no in-memory binding exists
-        // (e.g. iCloud-synced sessions where SessionModelBinding doesn't carry
-        // across devices). Without this, compact / title gen silently jumps
-        // to the global default group, running on a different model than the
-        // one the chat header is showing.
-        if let session = await ChatStore.shared.getSession(sessionId) {
-            if session.title != nil {
-                titleGenAttempts = 3 // max out so no more attempts
-            }
-            cachedSessionModelId = session.modelId
-        }
-
         // iCloud-synced sessions never went through ensureSession() on this
         // device, so createInitialBinding() was never called and the local
         // store has no SessionModelBinding for them. Without a binding, the
@@ -769,7 +767,9 @@ extension AIChatViewModel {
         // default group, route the binding to THAT member (so synced session
         // sticks to the user-visible model). Otherwise fall back to the
         // group's normal resolve (first available member).
-        ensureSessionBindingFromDefaults(sessionId: sessionId)
+        if !isDelegatedWorkerSession {
+            ensureSessionBindingFromDefaults(sessionId: sessionId)
+        }
 
         // Detect interrupted agent loop:
         // Case A: last history entry is user with all toolResult parts → tools completed, next model call never happened
@@ -941,7 +941,7 @@ extension AIChatViewModel {
 
     /// Creates a session if needed and returns its ID.
     @discardableResult
-    func ensureSessionReturningId() async -> String {
+    func ensureSessionReturningId(makeActive: Bool = true) async -> String {
         if let sid = sessionId {
             logger.info("🔑DRAFT [vm=\(self.vmInstanceId)] ensureSession already has sessionId=\(sid)")
             return sid
@@ -949,7 +949,9 @@ extension AIChatViewModel {
         let model = selectedModel
         let session = await ChatStore.shared.createSession(modelId: model.id, source: sessionSource)
         sessionId = session.id
-        Self.activeSessionId = session.id
+        if makeActive {
+            Self.activeSessionId = session.id
+        }
         // [T-memory-enabled-new-session-bug] Sync the @Published memoryEnabled
         // to the value createSession just persisted from the global default.
         // A draft VM initializes memoryEnabled = true and never runs
@@ -990,21 +992,33 @@ extension AIChatViewModel {
         // group's default thinking level, which would otherwise overwrite the
         // user's pick on the very first send.
         let userSetThinkingLevel = flushPendingThinkingLevel()
-        // Cache this draft VM now that it has a session ID
-        ViewModelCache.shared.cacheDraft(self, sessionId: session.id)
+        // A headless delegated worker is persisted for audit, but must not
+        // replace/cache over the user's active draft or trigger navigation.
+        if makeActive {
+            ViewModelCache.shared.cacheDraft(self, sessionId: session.id)
+        }
         logger.info("🔑DRAFT [vm=\(self.vmInstanceId)] ensureSession CREATED sessionId=\(session.id) draftId=\(self.draftId ?? "nil")")
         mountMinis(for: session.id)
 
-        // Create initial session binding from default group → last-used → latest
-        // provider + latest text model. See createInitialBinding doc for the
-        // 3-tier fallback chain.
-        await createInitialBinding(for: session.id, preserveThinkingLevel: userSetThinkingLevel)
+        if isDelegatedWorkerSession {
+            // The delegate runner installs a strictly validated Worker Group
+            // binding immediately after this returns. Never seed a worker with
+            // Default Primary / last-used fallbacks, even transiently.
+            memoryEnabled = false
+            await ChatStore.shared.setMemoryEnabled(sessionId: session.id, enabled: false)
+        } else {
+            // Create initial session binding from default group → last-used →
+            // latest provider + latest text model.
+            await createInitialBinding(for: session.id, preserveThinkingLevel: userSetThinkingLevel)
+        }
 
         // Notify sidebar to replace placeholder with the real session.
         // Include draftId so the receiver can verify this came from the active draft.
-        var userInfo: [String: String] = [:]
-        if let draftId { userInfo["draftId"] = draftId }
-        NotificationCenter.default.post(name: .sessionDidCreate, object: session.id, userInfo: userInfo)
+        if makeActive {
+            var userInfo: [String: String] = [:]
+            if let draftId { userInfo["draftId"] = draftId }
+            NotificationCenter.default.post(name: .sessionDidCreate, object: session.id, userInfo: userInfo)
+        }
 
         return session.id
     }

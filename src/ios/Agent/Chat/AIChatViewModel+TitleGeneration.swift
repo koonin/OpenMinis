@@ -36,6 +36,10 @@ extension AIChatViewModel {
     /// Retries up to 3 times across agent loop iterations if the title is still missing.
     /// Skips if a generation request is already in-flight to avoid wasting tokens.
     func generateSessionTitleIfNeeded(toolEntries: [(name: String, args: [String: Any])] = []) {
+        // Delegated sessions receive the parent-supplied tool title. Running a
+        // separate Sub-model title request would add latency and defeat the
+        // low-cost worker path.
+        guard !isDelegatedWorkerSession else { return }
         guard let sessionId, titleGenAttempts < 3, !isTitleGenerating else { return }
 
         let userMessages = messages.filter { $0.role == .user }

@@ -188,7 +188,8 @@ extension AIChatViewModel {
                 }
 
                 let nextEntryId = ModelGroupRouter.nextFallback(
-                    group: group, currentEntryId: currentEid, store: ProviderConfigStore.shared
+                    group: groupForCurrentSessionRouting(group),
+                    currentEntryId: currentEid, store: ProviderConfigStore.shared
                 )
                 logger.info("🔀ROUTE nextFallback returned: \(nextEntryId ?? "nil")")
 
@@ -212,11 +213,13 @@ extension AIChatViewModel {
                 currentProvider = await makeAgentProvider(for: nextEntry)
                 // Rebuild system prompt for the new model's capabilities
                 var rebuiltPrompt = baseSystemPrompt
-                if let capFragment = nextEntry.model.capabilityPromptFragment {
-                    rebuiltPrompt += "\n\n" + capFragment
-                }
-                if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
-                    rebuiltPrompt += "\n\n" + behaviorFragment
+                if !isDelegatedWorkerSession {
+                    if let capFragment = nextEntry.model.capabilityPromptFragment {
+                        rebuiltPrompt += "\n\n" + capFragment
+                    }
+                    if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
+                        rebuiltPrompt += "\n\n" + behaviorFragment
+                    }
                 }
                 currentSystemPrompt = rebuiltPrompt
                 // continue loop — will try next entry immediately
@@ -242,7 +245,8 @@ extension AIChatViewModel {
                     }
 
                     let nextEntryId = ModelGroupRouter.nextFallback(
-                        group: group, currentEntryId: currentEid, store: ProviderConfigStore.shared
+                        group: groupForCurrentSessionRouting(group),
+                        currentEntryId: currentEid, store: ProviderConfigStore.shared
                     )
                     logger.info("🔀ROUTE always-strategy nextFallback returned: \(nextEntryId ?? "nil")")
 
@@ -265,11 +269,13 @@ extension AIChatViewModel {
                     currentEntryId = nextEntryId
                     currentProvider = await makeAgentProvider(for: nextEntry)
                     var rebuiltPrompt = baseSystemPrompt
-                    if let capFragment = nextEntry.model.capabilityPromptFragment {
-                        rebuiltPrompt += "\n\n" + capFragment
-                    }
-                    if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
-                        rebuiltPrompt += "\n\n" + behaviorFragment
+                    if !isDelegatedWorkerSession {
+                        if let capFragment = nextEntry.model.capabilityPromptFragment {
+                            rebuiltPrompt += "\n\n" + capFragment
+                        }
+                        if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
+                            rebuiltPrompt += "\n\n" + behaviorFragment
+                        }
                     }
                     currentSystemPrompt = rebuiltPrompt
                     continue
@@ -324,7 +330,8 @@ extension AIChatViewModel {
                     }
 
                     let nextEntryId = ModelGroupRouter.nextFallback(
-                        group: group, currentEntryId: currentEid, store: ProviderConfigStore.shared
+                        group: groupForCurrentSessionRouting(group),
+                        currentEntryId: currentEid, store: ProviderConfigStore.shared
                     )
                     logger.info("🔀ROUTE after retry exhaustion, nextFallback returned: \(nextEntryId ?? "nil")")
 
@@ -347,11 +354,13 @@ extension AIChatViewModel {
                     currentEntryId = nextEntryId
                     currentProvider = await makeAgentProvider(for: nextEntry)
                     var rebuiltPrompt = baseSystemPrompt
-                    if let capFragment = nextEntry.model.capabilityPromptFragment {
-                        rebuiltPrompt += "\n\n" + capFragment
-                    }
-                    if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
-                        rebuiltPrompt += "\n\n" + behaviorFragment
+                    if !isDelegatedWorkerSession {
+                        if let capFragment = nextEntry.model.capabilityPromptFragment {
+                            rebuiltPrompt += "\n\n" + capFragment
+                        }
+                        if let behaviorFragment = nextEntry.model.agentBehaviorPromptFragment {
+                            rebuiltPrompt += "\n\n" + behaviorFragment
+                        }
                     }
                     currentSystemPrompt = rebuiltPrompt
                     // continue loop — will try next entry
@@ -465,7 +474,8 @@ extension AIChatViewModel {
             if let gid = activeGroupId, let currentEid = activeEntryId,
                let group = ProviderConfigStore.shared.group(for: gid) {
                 let nextEid = ModelGroupRouter.nextFallback(
-                    group: group, currentEntryId: currentEid, store: ProviderConfigStore.shared
+                    group: groupForCurrentSessionRouting(group),
+                    currentEntryId: currentEid, store: ProviderConfigStore.shared
                 )
                 if let nextEid, !emptyResponseEntries.contains(nextEid) {
                     logger.info("🔀ROUTE-CONTENT manually advancing: \(currentEid) → \(nextEid)")

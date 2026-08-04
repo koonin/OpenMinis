@@ -263,6 +263,12 @@ extension AIChatViewModel {
     private static let resolveNilSentinel = "\u{0}nil"
 
     func resolveCurrentEntry() -> ModelEntry? {
+        // Worker policy must be evaluated on every request. Never let the
+        // normal cache/default/cached-model fallback turn a stale delegated
+        // binding into a request on the parent model.
+        if isDelegatedWorkerSession {
+            return resolveDelegatedWorkerEntryStrict()
+        }
         let store = ProviderConfigStore.shared
         let key = ResolveCacheKey(
             sessionId: sessionId ?? "",
@@ -281,6 +287,27 @@ extension AIChatViewModel {
         let resolved = resolveCurrentEntryUncached()
         Self.resolveCache[key] = resolved?.id ?? Self.resolveNilSentinel
         return resolved
+    }
+
+    private func resolveDelegatedWorkerEntryStrict() -> ModelEntry? {
+        let store = ProviderConfigStore.shared
+        guard let sid = sessionId,
+              let configuredGroupId = store.workerGroupId,
+              let group = store.group(for: configuredGroupId),
+              let binding = store.binding(for: sid),
+              case .group(let boundGroupId, let resolvedEntryId) = binding.primarySource,
+              boundGroupId == configuredGroupId,
+              group.memberEntryIds.contains(resolvedEntryId),
+              let entry = store.entry(for: resolvedEntryId),
+              !entry.isHidden,
+              entry.model.capabilities.supportedModalities.contains(.textOutput),
+              let instance = store.instance(for: entry.providerInstanceId),
+              instance.isEnabled,
+              instance.hasAnyCredential else {
+            logger.error("[WorkerDelegation] strict model resolution failed; refusing parent/default fallback for sid=\(sessionId?.prefix(8) ?? "nil")")
+            return nil
+        }
+        return entry
     }
 
     private func resolveCurrentEntryUncached() -> ModelEntry? {

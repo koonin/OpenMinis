@@ -8,7 +8,11 @@ import com.openminis.app.ui.chat.ChatViewModel
 import com.openminis.app.ui.chat.ChatViewModelStore
 import com.openminis.app.ui.chat.InputAttachment
 import com.openminis.app.ui.chat.addAttachment
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -74,17 +78,183 @@ internal object HeadlessChatRunner {
      * automation we materialize it eagerly so subsequent reads can resolve
      * the id.
      */
-    suspend fun ensureSession(context: Context, modelId: String? = null): String =
+    suspend fun ensureSession(
+        context: Context,
+        modelId: String? = null,
+        source: String = "debug",
+        title: String? = null,
+        memoryEnabled: Boolean = true,
+    ): String =
         withContext(Dispatchers.IO) {
             val app = app(context)
             val resolvedModel = modelId
                 ?: app.providerRepository.allVisibleEntries().firstOrNull()?.baseModel?.id
                 ?: "unknown"
-            val s = app.chatRepository.createSession(modelId = resolvedModel, title = null)
-            // Mark source so the UI session list shows it came from RPC.
-            app.chatRepository.dao.updateSource(s.id, "debug")
+            val s = app.chatRepository.createSession(
+                modelId = resolvedModel,
+                title = title,
+                memoryEnabled = memoryEnabled,
+            )
+            // Source is persisted before any ViewModel is created. This is
+            // load-bearing for delegated workers: a recreated VM must restore
+            // its read-only/no-recursion policy from the DB row.
+            app.chatRepository.dao.updateSource(s.id, source)
             s.id
         }
+
+    /**
+     * Run one strict, read-only delegated worker session. Resolution is
+     * intentionally fail-closed: only the configured Worker Group is allowed;
+     * missing/disabled/hidden/non-text/no-credential members never fall back to
+     * Primary or Sub. The child stream is cancelled on timeout or parent
+     * cancellation so a ViewModel-scoped job cannot continue orphaned.
+     */
+    suspend fun runDelegatedTask(
+        context: Context,
+        task: String,
+        expectedOutput: String?,
+        timeoutMs: Long,
+        title: String,
+    ): DelegatedPromptResult {
+        currentCoroutineContext().ensureActive()
+        val app = app(context)
+        val group = app.providerRepository.resolvedWorkerGroup()
+            ?: return DelegatedPromptResult(
+                status = "error",
+                error = "Worker Group is not configured or has no usable text model.",
+            )
+        val eligibleEntries = app.providerRepository.resolvedWorkerEntries(group)
+        val targetEntry = eligibleEntries.firstOrNull()
+            ?: return DelegatedPromptResult(
+                status = "error",
+                groupId = group.id,
+                groupName = group.name,
+                error = "Worker Group has no enabled, visible text model with credentials.",
+            )
+
+        var childSessionId: String? = null
+        try {
+            val sid = ensureSession(
+                context = context,
+                modelId = targetEntry.baseModel.id,
+                source = "delegated_worker",
+                title = title.ifBlank { "Delegated worker" },
+                memoryEnabled = false,
+            )
+            childSessionId = sid
+            // Bind to the explicit group and pin the first strictly eligible
+            // member. ChatViewModel restores the group so fallback semantics and
+            // group thinking defaults still apply, but never chooses an
+            // ineligible member at initial resolution.
+            val binding = org.json.JSONObject()
+                .put("type", "group")
+                .put("groupId", group.id)
+                .put("lastEntryId", targetEntry.id)
+                .toString()
+            app.chatRepository.updateSessionBinding(sid, binding, targetEntry.baseModel.id)
+
+            // Materialize and verify the VM before sending. This catches stale
+            // config races where the selected entry/group changed after the
+            // strict resolver ran.
+            val resolvedWorker = withContext(Dispatchers.Main) {
+                val vm = viewModel(context, sid)
+                withContext(Dispatchers.Default) {
+                    withTimeoutOrNull(5000L) { vm.activeEntryId.first { it != null } }
+                }
+                vm.activeEntryId.value to vm.modelName.value
+            }
+            val stillEligible = app.providerRepository.resolvedWorkerGroup()
+                ?.takeIf { it.id == group.id }
+                ?.let { current -> app.providerRepository.resolvedWorkerEntries(current) }
+                .orEmpty()
+            if (resolvedWorker.first == null || stillEligible.none { it.id == resolvedWorker.first }) {
+                cancel(context, sid)
+                return DelegatedPromptResult(
+                    status = "error",
+                    sessionId = sid,
+                    groupId = group.id,
+                    groupName = group.name,
+                    modelName = resolvedWorker.second.takeIf { it.isNotBlank() },
+                    error = "Worker model resolution changed before dispatch; task was not sent.",
+                )
+            }
+
+            val promptText = buildString {
+                append("Assigned task:\n")
+                append(task.trim())
+                expectedOutput?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    append("\n\nExpected output:\n")
+                    append(it)
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            val result = prompt(
+                context = context,
+                sessionId = sid,
+                text = promptText,
+                thinkingLevel = group.defaultThinkingLevel,
+                wait = true,
+                timeoutMs = timeoutMs,
+            )
+            if (result.timedOut) cancel(context, sid)
+            val output = result.responseText?.takeIf { it.isNotBlank() }
+            val finalModelName = withContext(Dispatchers.Main) {
+                viewModel(context, sid).modelName.value.takeIf { it.isNotBlank() }
+            } ?: resolvedWorker.second.takeIf { it.isNotBlank() }
+            return when {
+                result.timedOut -> DelegatedPromptResult(
+                    status = "timeout",
+                    sessionId = sid,
+                    groupId = group.id,
+                    groupName = group.name,
+                    modelName = finalModelName,
+                    output = output,
+                    error = "Worker exceeded the timeout.",
+                )
+                result.status == "Cancelled" -> DelegatedPromptResult(
+                    status = "cancelled",
+                    sessionId = sid,
+                    groupId = group.id,
+                    groupName = group.name,
+                    modelName = finalModelName,
+                    output = output,
+                    error = "Worker was cancelled.",
+                )
+                result.status != "Completed" || output == null -> DelegatedPromptResult(
+                    status = "error",
+                    sessionId = sid,
+                    groupId = group.id,
+                    groupName = group.name,
+                    modelName = finalModelName,
+                    output = output,
+                    error = output ?: "Worker completed without a text result.",
+                )
+                else -> DelegatedPromptResult(
+                    status = "success",
+                    sessionId = sid,
+                    groupId = group.id,
+                    groupName = group.name,
+                    modelName = finalModelName,
+                    output = output,
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            childSessionId?.let { sid ->
+                withContext(NonCancellable) { runCatching { cancel(context, sid) } }
+            }
+            throw cancelled
+        } catch (t: Throwable) {
+            childSessionId?.let { sid -> runCatching { cancel(context, sid) } }
+            return DelegatedPromptResult(
+                status = "error",
+                sessionId = childSessionId,
+                groupId = group.id,
+                groupName = group.name,
+                modelName = targetEntry.model.displayName,
+                error = t.message ?: t::class.java.simpleName,
+            )
+        }
+    }
 
     /**
      * Apply a model-entry / model-group override to a session before send.
@@ -160,6 +330,7 @@ internal object HeadlessChatRunner {
         timeoutMs: Long,
     ): PromptResult = withContext(Dispatchers.Main) {
         val vm = viewModel(context, sessionId)
+        currentCoroutineContext().ensureActive()
         // Apply per-call thinking override BEFORE sendMessage so streamMessage
         // picks up the new level. Caller passes null to keep the VM's existing
         // setting (default OFF for a fresh VM, last user-set value otherwise).
@@ -213,7 +384,9 @@ internal object HeadlessChatRunner {
             )
         }
         for (att in attachments) vm.addAttachment(att)
+        currentCoroutineContext().ensureActive()
         vm.sendMessage(text)
+        currentCoroutineContext().ensureActive()
         if (!wait) return@withContext PromptResult(status = "Running", responseText = null, timedOut = false)
 
         // Wait for isStreaming to be false (sendMessage flips it true synchronously
@@ -240,7 +413,11 @@ internal object HeadlessChatRunner {
         val lastAssistant = msgs.lastOrNull { it.role == "assistant" }
         val responseText = lastAssistant?.let { extractText(it.partsJson) }
         PromptResult(
-            status = if (finished) "Completed" else "Timeout",
+            status = when {
+                !finished -> "Timeout"
+                vm.canResume.value -> "Cancelled"
+                else -> "Completed"
+            },
             responseText = responseText,
             timedOut = !finished,
         )
@@ -556,6 +733,16 @@ internal object HeadlessChatRunner {
         val timedOut: Boolean,
         val deletedMessageCount: Int = 0,
         val retriedMessageId: String? = null,
+    )
+
+    data class DelegatedPromptResult(
+        val status: String,
+        val sessionId: String? = null,
+        val groupId: String? = null,
+        val groupName: String? = null,
+        val modelName: String? = null,
+        val output: String? = null,
+        val error: String? = null,
     )
 
     data class CompactResult(

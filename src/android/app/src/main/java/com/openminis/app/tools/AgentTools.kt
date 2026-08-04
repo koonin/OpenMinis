@@ -11,6 +11,24 @@ import com.openminis.app.data.model.AgentToolParam
  */
 object AgentTools {
 
+    const val DELEGATE_TASK_NAME = "delegate_task"
+    const val MAX_PARALLEL_DELEGATES = 3
+
+    /** Browser operations a delegated worker may use without mutating a site. */
+    val READ_ONLY_BROWSER_ACTIONS: Set<BrowserAction> = setOf(
+        BrowserAction.NAVIGATE,
+        BrowserAction.SCREENSHOT,
+        BrowserAction.GET_TEXT,
+        BrowserAction.SCROLL,
+        BrowserAction.GET_PAGE_INFO,
+        BrowserAction.FIND_ELEMENTS,
+        BrowserAction.GET_READABLE,
+        BrowserAction.GET_BACKBONE,
+        BrowserAction.LIST_TABS,
+        BrowserAction.SCROLL_AND_COLLECT,
+        BrowserAction.WAIT_FOR_DOM_STABLE,
+    )
+
     fun makeAgentTools(
         supportsImageInput: Boolean = true,
         // [T-memory-toggle-gates-injection-and-tools-android] When the
@@ -20,20 +38,54 @@ object AgentTools {
         // attempt those calls. Mirrors the iOS gate at
         // AIChatViewModel.makeAgentTools(memoryEnabled:).
         memoryEnabled: Boolean = true,
+        readOnlyWorker: Boolean = false,
+        delegationEnabled: Boolean = false,
     ): List<AgentToolDefinition> = buildList {
-        add(shellExecuteDefinition())
+        if (!readOnlyWorker) add(shellExecuteDefinition())
         add(FileReadTool.definition())
-        add(FileWriteTool.definition())
-        add(FileEditTool.definition())
+        if (!readOnlyWorker) {
+            add(FileWriteTool.definition())
+            add(FileEditTool.definition())
+        }
         if (supportsImageInput) {
             add(ReadImageTool.definition())
         }
-        add(browserUseDefinition())
-        if (memoryEnabled) {
+        add(browserUseDefinition(readOnly = readOnlyWorker))
+        if (memoryEnabled && !readOnlyWorker) {
             add(memoryWriteDefinition())
             add(memoryGetDefinition())
         }
+        if (!readOnlyWorker && delegationEnabled) add(delegateTaskDefinition())
     }
+
+    private fun delegateTaskDefinition(): AgentToolDefinition = AgentToolDefinition(
+        name = DELEGATE_TASK_NAME,
+        description = "Delegate one explicit, low-risk task to the configured Worker Group. " +
+            "The worker runs independently with read-only tools and cannot delegate again. " +
+            "Use multiple delegate_task calls in one response for independent tasks; up to " +
+            "$MAX_PARALLEL_DELEGATES run concurrently. Review every result yourself before answering the user.",
+        parameters = mapOf(
+            "tool_title" to AgentToolParam(
+                "string",
+                "A concise 5-10 word summary shown to the user. Use the user's language.",
+            ),
+            "task" to AgentToolParam(
+                "string",
+                "A self-contained task with all context, constraints, and acceptance criteria the worker needs.",
+            ),
+            "expected_output" to AgentToolParam(
+                "string",
+                "Optional exact output format or evidence the worker should return.",
+            ),
+            "timeout_seconds" to AgentToolParam(
+                "integer",
+                "Optional timeout in seconds (default 180, minimum 10, maximum 900). " +
+                    "The deadline includes waiting for a worker slot, session setup, and execution.",
+            ),
+        ),
+        required = listOf("tool_title", "task"),
+        propertyOrdering = listOf("tool_title", "task", "expected_output", "timeout_seconds"),
+    )
 
     // Aligned with iOS AIChatViewModel.swift:4982-4993
     private fun shellExecuteDefinition(): AgentToolDefinition = AgentToolDefinition(
@@ -53,9 +105,16 @@ object AgentTools {
     )
 
     // Aligned with iOS AIChatViewModel.swift browser_use definition
-    private fun browserUseDefinition(): AgentToolDefinition = AgentToolDefinition(
+    private fun browserUseDefinition(readOnly: Boolean): AgentToolDefinition = AgentToolDefinition(
         name = "browser_use",
-        description = "Control a web browser with up to 3 tabs. " +
+        description = if (readOnly) {
+            "Read web pages without interacting with forms or changing remote state. " +
+                "Allowed actions are navigate, screenshot, get_text, scroll, get_page_info, " +
+                "find_elements, get_readable, get_backbone, list_tabs, scroll_and_collect, " +
+                "and wait_for_dom_stable. Do not attempt clicks, typing, JavaScript, downloads, " +
+                "cookie access, or other browser mutations."
+        } else {
+            "Control a web browser with up to 3 tabs. " +
             "Do NOT use this tool for minis:// action URLs (open_terminal, views, settings) — those are app deep links, use Markdown links in chat instead. " +
             "The browser supports both web URLs and minis:// resource URLs. Use minis:// URLs to preview session files (e.g. navigate to minis://workspace/index.html). " +
             "Sub-resources (JS, CSS, images, fonts) referenced via minis:// absolute paths or relative paths within HTML pages resolve correctly. " +
@@ -70,11 +129,12 @@ object AgentTools {
             "Use get_cookies to retrieve cookies for the current page URL / current site root domain only (including HttpOnly cookies). get_cookies supports optional 'keywords' (filter by cookie name) and 'fuzzy' (true=contains match, false=exact match, default true). It returns only a summary and an offload env file path — raw cookie values are NOT included in the tool response. To reuse cookies in shell commands: `. /var/minis/offloads/env_cookies_xxx.sh && command`. You may define alias variables when needed. " +
             "Use set_cookies to write cookies into the current page's cookie store via the native cookie store (so even HttpOnly cookies, which JS cannot set, land). Pass a 'cookies' array of objects, each with name + value (required) and optional domain (defaults to the current page host), path (defaults to '/'), secure, http_only, and expires (Unix timestamp in seconds; omit for a session cookie). " +
             "Use wait_for_dom_stable to wait until the page DOM stops changing (useful after navigation or interactions that trigger async data loading — polls every 0.5s, resolves when mutation rate gradient is stable for 3+ intervals, default timeout 10s). " +
-            "Use tab_id to target a specific tab (defaults to the most recently used tab).",
+            "Use tab_id to target a specific tab (defaults to the most recently used tab)."
+        },
         parameters = mapOf(
             "tool_title" to AgentToolParam("string", "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Open Wikipedia homepage', 'Take screenshot of current page'). Use the same language as the user."),
             "action" to AgentToolParam("string", "The browser action to perform",
-                enumValues = BrowserAction.allValues),
+                enumValues = if (readOnly) READ_ONLY_BROWSER_ACTIONS.map { it.value } else BrowserAction.allValues),
             "url" to AgentToolParam("string", "URL to navigate to (for navigate action) or resource to download (for fetch action)"),
             "selector" to AgentToolParam("string", "CSS selector for targeting elements (click, type, get_text, scroll, hover, find_elements). For scroll: specify a scrollable container to scroll (e.g. 'div.timeline'); if omitted, auto-detects the best scrollable element."),
             "text" to AgentToolParam("string", "Text to type (for type action)"),

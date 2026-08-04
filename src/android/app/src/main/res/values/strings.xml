@@ -206,6 +206,8 @@
     <string name="quicktest_transcript_result">Spoken: "%1$s"\nHeard: "%2$s"</string>
     <string name="quicktest_clip_failed">Couldn\'t synthesize the local test clip.</string>
     <string name="model_groups_voice_input">Voice Input</string>
+    <string name="model_groups_worker_group">Worker Group</string>
+    <string name="model_groups_worker_group_footer">Worker runs explicit, read-only delegated tasks. Leaving it unset disables delegation.</string>
     <string name="model_groups_voice_output">Voice Output</string>
     <!-- [T-mcp-env-var-picker-android] Insert a reference to an App env var as $$VAR -->
     <string name="mcp_form_env_insert_app_var">Insert app var</string>

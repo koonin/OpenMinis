@@ -39,6 +39,7 @@ data class ProviderConfigSnapshot(
 object ProviderConfigMetaKeys {
     const val DEFAULT_PRIMARY_GROUP_ID = "default_primary_group_id"
     const val DEFAULT_SUB_GROUP_ID = "default_sub_group_id"
+    const val WORKER_GROUP_ID = "worker_group_id"
     // [T-android-provider-voice] Voice Input / Voice Output group bindings
     // (mirrors iOS provider_local_kv voiceInputGroupId / voiceOutputGroupId).
     // Meta KV rows are additive — no Room schema migration needed.
@@ -170,6 +171,9 @@ fun ProviderConfig.toSnapshot(
     defaultSubGroupId?.let {
         metaRows.add(ProviderConfigMetaEntity(ProviderConfigMetaKeys.DEFAULT_SUB_GROUP_ID, it))
     }
+    workerGroupId?.let {
+        metaRows.add(ProviderConfigMetaEntity(ProviderConfigMetaKeys.WORKER_GROUP_ID, it))
+    }
     voiceInputGroupId?.let {
         metaRows.add(ProviderConfigMetaEntity(ProviderConfigMetaKeys.VOICE_INPUT_GROUP_ID, it))
     }
@@ -267,6 +271,7 @@ fun ProviderConfigSnapshot.toProviderConfig(jsonForBlobs: Json): ProviderConfig 
         modelGroups = groups,
         defaultPrimaryGroupId = metaMap[ProviderConfigMetaKeys.DEFAULT_PRIMARY_GROUP_ID],
         defaultSubGroupId = metaMap[ProviderConfigMetaKeys.DEFAULT_SUB_GROUP_ID],
+        workerGroupId = metaMap[ProviderConfigMetaKeys.WORKER_GROUP_ID],
         voiceInputGroupId = metaMap[ProviderConfigMetaKeys.VOICE_INPUT_GROUP_ID],
         voiceOutputGroupId = metaMap[ProviderConfigMetaKeys.VOICE_OUTPUT_GROUP_ID],
         agentLoopModelEntryIds = entryLoopIds,

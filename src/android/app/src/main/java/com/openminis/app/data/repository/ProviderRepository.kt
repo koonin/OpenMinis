@@ -689,6 +689,7 @@ class ProviderRepository(private val context: Context) {
             config.modelGroups.removeAll { it.id in emptyGroupIds }
             if (config.defaultPrimaryGroupId in emptyGroupIds) config.defaultPrimaryGroupId = null
             if (config.defaultSubGroupId in emptyGroupIds) config.defaultSubGroupId = null
+            if (config.workerGroupId in emptyGroupIds) config.workerGroupId = null
         }
 
         saveConfig(config)
@@ -1020,6 +1021,9 @@ class ProviderRepository(private val context: Context) {
         if (config.defaultSubGroupId == groupId) {
             config.defaultSubGroupId = null
         }
+        if (config.workerGroupId == groupId) {
+            config.workerGroupId = null
+        }
         if (config.voiceInputGroupId == groupId) {
             config.voiceInputGroupId = null
         }
@@ -1159,6 +1163,40 @@ class ProviderRepository(private val context: Context) {
             config.defaultSubGroupId = value
             saveConfig(config)
         }
+
+    /** Explicit worker-model group used by delegate_task. Null disables delegation. */
+    var workerGroupId: String?
+        get() = _config.value.workerGroupId
+        set(value) {
+            ensureConfigLoaded()
+            val config = _config.value
+            config.workerGroupId = value
+            saveConfig(config)
+        }
+
+    /**
+     * Resolve a usable worker group without falling back to Primary/Sub.
+     * A group is usable only when it still exists and at least one enabled
+     * member has a credential that ChatViewModel can instantiate.
+     */
+    fun resolvedWorkerGroup(): ModelGroup? {
+        val id = workerGroupId ?: return null
+        val group = group(id) ?: return null
+        return group.takeIf { resolvedWorkerEntries(it).isNotEmpty() }
+    }
+
+    /** Eligible text workers, kept in group order for deterministic routing. */
+    fun resolvedWorkerEntries(group: ModelGroup): List<ModelEntry> {
+        val config = _config.value
+        val enabledInstances = config.instances.filter { it.isEnabled }.associateBy { it.id }
+        return group.memberEntryIds.mapNotNull { entryId ->
+            val entry = config.modelEntries.firstOrNull { it.id == entryId } ?: return@mapNotNull null
+            if (entry.isHidden || !entry.model.isTextOutput) return@mapNotNull null
+            val instance = enabledInstances[entry.providerInstanceId] ?: return@mapNotNull null
+            if (loadApiKey(instance.id).isNullOrBlank()) return@mapNotNull null
+            entry
+        }
+    }
 
     // --- Voice groups [T-android-provider-voice] ---
 

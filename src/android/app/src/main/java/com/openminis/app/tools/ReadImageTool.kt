@@ -38,7 +38,12 @@ object ReadImageTool {
      * `ReadImageTool` which carries `sessionId` through its tool-call
      * pipeline.
      */
-    fun execute(argsJson: String, sessionId: String? = null, context: Context? = null): ToolExecutionResult {
+    fun execute(
+        argsJson: String,
+        sessionId: String? = null,
+        context: Context? = null,
+        readOnlyWorker: Boolean = false,
+    ): ToolExecutionResult {
         return try {
             val args = JSONObject(argsJson)
             val rawPath = args.optString("path", "")
@@ -48,16 +53,33 @@ object ReadImageTool {
                 return ToolExecutionResult("Error: 'path' is required", false, toolTitle = toolTitle)
             }
 
-            val path = if (rawPath.startsWith("minis://")) {
-                "/var/minis/" + java.net.URLDecoder.decode(rawPath.removePrefix("minis://"), "UTF-8")
-            } else rawPath
-
-            val file = (
-                if (sessionId != null && context != null) {
-                    PRootKernel.resolveSessionHostPath(sessionId, path, context)
-                } else null
-            ) ?: PRootKernel.resolveHostPath(path)
-                ?: return ToolExecutionResult("Error: Cannot resolve path: $path", false, toolTitle = toolTitle)
+            val path: String
+            val file: java.io.File
+            if (readOnlyWorker) {
+                val resolved = if (sessionId != null && context != null) {
+                    DelegatedWorkerReadPathPolicy.resolve(rawPath, sessionId, context)
+                } else {
+                    null
+                } ?: return ToolExecutionResult(
+                    "Error: Path is outside the delegated worker read scope: $rawPath",
+                    false,
+                    toolTitle = toolTitle,
+                )
+                path = resolved.linuxPath
+                // Read the canonical, containment-verified file directly. No
+                // worker branch reaches either general resolver below.
+                file = resolved.file
+            } else {
+                path = if (rawPath.startsWith("minis://")) {
+                    "/var/minis/" + java.net.URLDecoder.decode(rawPath.removePrefix("minis://"), "UTF-8")
+                } else rawPath
+                file = (
+                    if (sessionId != null && context != null) {
+                        PRootKernel.resolveSessionHostPath(sessionId, path, context)
+                    } else null
+                ) ?: PRootKernel.resolveHostPath(path)
+                    ?: return ToolExecutionResult("Error: Cannot resolve path: $path", false, toolTitle = toolTitle)
+            }
 
             if (!file.exists()) {
                 return ToolExecutionResult("Error: File not found: $path", false, toolTitle = toolTitle)

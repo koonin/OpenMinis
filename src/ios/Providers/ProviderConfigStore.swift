@@ -22,6 +22,9 @@ struct ProviderConfig: Codable, Equatable {
     var modelGroups: [ModelGroup]
     var defaultPrimaryGroupId: String?
     var defaultSubGroupId: String?
+    /// Model group used by delegated read-only worker agents. Per-device, like
+    /// the primary/sub selectors; nil disables native task delegation.
+    var workerGroupId: String?
     /// Stores per-session model bindings keyed by sessionId.
     var sessionBindings: [String: SessionModelBinding]
     /// ModelEntry IDs for individual models available in agent loop (minis-model-use).
@@ -47,6 +50,7 @@ struct ProviderConfig: Codable, Equatable {
 
     init(instances: [ProviderInstance], modelEntries: [ModelEntry], modelGroups: [ModelGroup],
          defaultPrimaryGroupId: String?, defaultSubGroupId: String?,
+         workerGroupId: String? = nil,
          sessionBindings: [String: SessionModelBinding],
          agentLoopModelEntryIds: [String] = [], agentLoopGroupIds: [String] = [],
          voiceInputGroupId: String? = nil, voiceOutputGroupId: String? = nil,
@@ -59,6 +63,7 @@ struct ProviderConfig: Codable, Equatable {
         self.modelGroups = modelGroups
         self.defaultPrimaryGroupId = defaultPrimaryGroupId
         self.defaultSubGroupId = defaultSubGroupId
+        self.workerGroupId = workerGroupId
         self.sessionBindings = sessionBindings
         self.agentLoopModelEntryIds = agentLoopModelEntryIds
         self.agentLoopGroupIds = agentLoopGroupIds
@@ -82,6 +87,7 @@ struct ProviderConfig: Codable, Equatable {
         }
         defaultPrimaryGroupId = try container.decodeIfPresent(String.self, forKey: .defaultPrimaryGroupId)
         defaultSubGroupId = try container.decodeIfPresent(String.self, forKey: .defaultSubGroupId)
+        workerGroupId = try container.decodeIfPresent(String.self, forKey: .workerGroupId)
         sessionBindings = try container.decode([String: SessionModelBinding].self, forKey: .sessionBindings)
         agentLoopModelEntryIds = try container.decodeIfPresent([String].self, forKey: .agentLoopModelEntryIds) ?? []
         agentLoopGroupIds = try container.decodeIfPresent([String].self, forKey: .agentLoopGroupIds) ?? []
@@ -94,7 +100,7 @@ struct ProviderConfig: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case instances, modelEntries, modelGroups, defaultPrimaryGroupId, defaultSubGroupId
+        case instances, modelEntries, modelGroups, defaultPrimaryGroupId, defaultSubGroupId, workerGroupId
         case sessionBindings, agentLoopModelEntryIds, agentLoopGroupIds, sessionInferenceConfigs
         case voiceInputGroupId, voiceOutputGroupId
         case deletedInstances, deletedModelEntries, deletedModelGroups
@@ -412,6 +418,9 @@ final class ProviderConfigStore: ObservableObject {
             }
             if let def = config.defaultSubGroupId, emptyGroupIds.contains(def) {
                 config.defaultSubGroupId = nil
+            }
+            if let worker = config.workerGroupId, emptyGroupIds.contains(worker) {
+                config.workerGroupId = nil
             }
         }
         // Restore default group pointer if lost (e.g. missing key in JSON) but groups exist.
@@ -843,6 +852,9 @@ final class ProviderConfigStore: ObservableObject {
         // which also deleted a user's intentionally-empty group (newly created,
         // or temporarily cleared) and propagated that deletion via tombstone.
         config.modelGroups.removeAll { removedGroupIds.contains($0.id) }
+        if let worker = config.workerGroupId, removedGroupIds.contains(worker) {
+            config.workerGroupId = nil
+        }
         // Remove from agent loop list
         config.agentLoopModelEntryIds.removeAll { removedEntryIds.contains($0) }
         // Stamp tombstones so iCloud sync can propagate the delete instead
@@ -1579,6 +1591,7 @@ final class ProviderConfigStore: ObservableObject {
         config.modelGroups.removeAll { $0.id == groupId }
         if config.defaultPrimaryGroupId == groupId { config.defaultPrimaryGroupId = nil }
         if config.defaultSubGroupId == groupId { config.defaultSubGroupId = nil }
+        if config.workerGroupId == groupId { config.workerGroupId = nil }
         config.agentLoopGroupIds.removeAll { $0 == groupId }
         Self.recordTombstone(in: &config.deletedModelGroups, ids: [groupId])
         save()
@@ -1725,6 +1738,14 @@ final class ProviderConfigStore: ObservableObject {
         }
     }
 
+    var workerGroupId: String? {
+        get { config.workerGroupId }
+        set {
+            config.workerGroupId = newValue
+            save()
+        }
+    }
+
     // MARK: - Session Bindings
 
     func binding(for sessionId: String) -> SessionModelBinding? {
@@ -1798,7 +1819,13 @@ final class ProviderConfigStore: ObservableObject {
         // now-removed duplicate doesn't become a dangling reference. Because
         // the representative is chosen deterministically, every device
         // converges to the SAME survivor and the SAME group references.
-        let (deduped, prunedEntryIds) = Self.dedupeEntriesByModel(newConfig)
+        let dedupeResult = Self.dedupeEntriesByModel(newConfig)
+        var deduped = dedupeResult.config
+        let prunedEntryIds = dedupeResult.prunedEntryIds
+        if let worker = deduped.workerGroupId,
+           !deduped.modelGroups.contains(where: { $0.id == worker }) {
+            deduped.workerGroupId = nil
+        }
 
         // [T-ios-config-noop-publish-storm] No-op compensation short-circuit.
         // The periodic fetchRecent poll is purely a safety net — the common

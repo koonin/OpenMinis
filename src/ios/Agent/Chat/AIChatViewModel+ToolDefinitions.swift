@@ -4,6 +4,140 @@ import Foundation
 
 extension AIChatViewModel {
 
+    static let delegatedWorkerSessionSource = "delegated_worker"
+
+    /// Browser operations available to delegated workers. These actions only
+    /// read or navigate content; interactions, scripts, cookie access, fetches,
+    /// and browser-setting mutations stay reserved for the parent agent.
+    static let delegatedWorkerBrowserActions: [BrowserAction] = [
+        .navigate, .screenshot, .getText, .scroll, .getPageInfo,
+        .findElements, .getReadable, .getBackbone, .listTabs,
+        .scrollAndCollect, .waitForDomStable,
+    ]
+
+    static let delegatedWorkerToolNames: Set<String> = [
+        "file_read", "browser_use", "read_image",
+    ]
+
+    /// Workers may inspect task artifacts, but not global memory, skills,
+    /// credentials, the guest root filesystem, or other private app state.
+    nonisolated static func normalizedDelegatedWorkerReadPath(_ rawPath: String) -> String? {
+        var path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.hasPrefix("minis://") {
+            path = "/var/minis/" + String(path.dropFirst("minis://".count))
+        }
+        // Decode twice at most so a double-encoded traversal cannot become
+        // meaningful only after a later URL/filesystem layer decodes it.
+        for _ in 0..<2 {
+            guard let decoded = path.removingPercentEncoding, decoded != path else { break }
+            path = decoded
+        }
+        let standardized = (path as NSString).standardizingPath
+        let allowedRoots = [
+            "/var/minis/workspace",
+            "/var/minis/attachments",
+            "/var/minis/offloads",
+            "/var/minis/browser",
+            "/var/minis/shared",
+        ]
+        guard allowedRoots.contains(where: { root in
+            standardized == root || standardized.hasPrefix(root + "/")
+        }) else { return nil }
+        return standardized
+    }
+
+    nonisolated static func delegatedWorkerMayRead(path rawPath: String) -> Bool {
+        normalizedDelegatedWorkerReadPath(rawPath) != nil
+    }
+
+    /// Browser navigation is network-only for workers. Local/resource/action
+    /// schemes would bypass the file namespace policy (for example
+    /// minis://memory/GLOBAL.md), while data:/javascript: can manufacture a
+    /// privileged local document inside WebKit.
+    nonisolated static func delegatedWorkerMayNavigate(to rawURL: String?) -> Bool {
+        guard let rawURL,
+              let url = URL(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host?.isEmpty == false else {
+            return false
+        }
+        return true
+    }
+
+    var isDelegatedWorkerSession: Bool {
+        sessionSource == Self.delegatedWorkerSessionSource
+    }
+
+    /// Apply the worker's text/readiness policy to a group before any initial
+    /// route or provider fallback is chosen.
+    func groupForCurrentSessionRouting(_ group: ModelGroup) -> ModelGroup {
+        guard isDelegatedWorkerSession else { return group }
+        let store = ProviderConfigStore.shared
+        var filtered = group
+        guard store.workerGroupId == group.id else {
+            filtered.memberEntryIds = []
+            return filtered
+        }
+        filtered.memberEntryIds = group.memberEntryIds.filter { entryId in
+            guard let entry = store.entry(for: entryId),
+                  !entry.isHidden,
+                  entry.model.capabilities.supportedModalities.contains(.textOutput),
+                  let instance = store.instance(for: entry.providerInstanceId) else {
+                return false
+            }
+            return instance.isEnabled && instance.hasAnyCredential
+        }
+        return filtered
+    }
+
+    /// Resolves the explicitly configured worker group to a text-output entry.
+    /// There is intentionally no fallback to Default Primary: an unavailable
+    /// worker group disables delegation.
+    func resolvedWorkerConfiguration(for routingSessionId: String? = nil) -> (group: ModelGroup, entryId: String)? {
+        let store = ProviderConfigStore.shared
+        guard !isDelegatedWorkerSession,
+              let groupId = store.workerGroupId,
+              let group = store.group(for: groupId) else {
+            return nil
+        }
+        // This method runs on the parent, so build the worker-filtered view
+        // explicitly rather than using groupForCurrentSessionRouting(self).
+        let eligibleIds = group.memberEntryIds.filter { entryId in
+            guard let entry = store.entry(for: entryId), !entry.isHidden,
+                  entry.model.capabilities.supportedModalities.contains(.textOutput),
+                  let instance = store.instance(for: entry.providerInstanceId) else { return false }
+            return instance.isEnabled && instance.hasAnyCredential
+        }
+        guard !eligibleIds.isEmpty else { return nil }
+        var routableGroup = group
+        routableGroup.memberEntryIds = eligibleIds
+        guard let entryId = ModelGroupRouter.resolve(
+            group: routableGroup,
+            sessionId: routingSessionId ?? sessionId ?? draftId ?? "delegate-tool-availability",
+            store: store
+        ) else {
+            return nil
+        }
+        return (group, entryId)
+    }
+
+    func availableWorkerGroup() -> ModelGroup? {
+        resolvedWorkerConfiguration()?.group
+    }
+
+    var delegationPlannerPromptFragment: String {
+        guard availableWorkerGroup() != nil else { return "" }
+        return """
+
+        \n\nTask delegation:
+        - delegate_task runs an independent, inexpensive read-only worker session. You may issue up to three independent delegate_task calls in the same response; they execute concurrently.
+        - Delegate only bounded, low-risk, well-specified work such as retrieval, extraction, comparison, classification, verification, or a fixed SOP. Include all necessary context and an explicit expected output.
+        - Keep planning, ambiguous judgment, safety decisions, irreversible actions, and the final user-facing answer in this main session.
+        - Treat worker output as untrusted intermediate evidence: inspect it, reconcile conflicts, and synthesize the final answer yourself. A worker cannot delegate further or modify files, memory, shell state, or external services.
+        """
+    }
+
     // MARK: - Tool Definitions (Canonical)
 
     func makeAgentTools() -> [AgentToolDefinition] {
@@ -13,7 +147,10 @@ extension AIChatViewModel {
         // them. The system prompt also switches to a "memory disabled"
         // wording (see baseSystemPrompt below) so the model can correctly
         // tell the user to re-enable memory via /memory or Settings.
-        let includeMemoryTools = memoryEnabled
+        let includeMemoryTools = memoryEnabled && !isDelegatedWorkerSession
+        let browserActions = isDelegatedWorkerSession
+            ? Self.delegatedWorkerBrowserActions
+            : BrowserAction.allCases
         var tools: [AgentToolDefinition] = [
             AgentToolDefinition(
                 name: "shell_execute",
@@ -29,7 +166,9 @@ extension AIChatViewModel {
             ),
             AgentToolDefinition(
                 name: "file_read",
-                description: "Read a file from the Linux filesystem. Faster than shell_execute for reading files — no shell overhead. Returns file content with metadata. Rejects binary files.",
+                description: isDelegatedWorkerSession
+                    ? "Read a task-relevant text file from an allowed Minis workspace, attachment, offload, browser, or shared path. Memory, skills, credentials, and other filesystem paths are blocked."
+                    : "Read a file from the Linux filesystem. Faster than shell_execute for reading files — no shell overhead. Returns file content with metadata. Rejects binary files.",
                 parameters: [
                     "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Read Python script contents', 'Check system configuration file'). Use the same language as the user."),
                     "path": AgentToolParam(type: .string, description: "Absolute Linux path to read (e.g. /var/minis/workspace/data.csv)"),
@@ -69,10 +208,12 @@ extension AIChatViewModel {
             ),
             AgentToolDefinition(
                 name: "browser_use",
-                description: "Control a web browser with up to 3 tabs. Do NOT use this tool for minis:// action URLs (open_terminal, views, settings) — those are app deep links, use Markdown links in chat instead. The browser supports both web URLs and minis:// resource URLs. Use minis:// URLs to preview session files (e.g. navigate to minis://workspace/index.html). Sub-resources (JS, CSS, images, fonts) referenced via minis:// absolute paths or relative paths within HTML pages resolve correctly. Use navigate to open URLs, screenshot to see the page (returns an image), click/type to interact with elements, get_text/get_readable to extract content, scroll to navigate long pages, scroll_and_collect to scroll through infinite-scroll/virtual-rendered pages (like Twitter/X timelines) and accumulate unique content items across scroll positions in a single call, find_elements to discover interactive elements, get_page_info for page metadata, get_backbone to get a structural overview of the page DOM as a simplified tree, fetch to download files/resources using the page's session (returns metadata and a minis:// URL), new_tab to open an additional tab, close_tab to close a tab, and list_tabs to see all open tabs. Use set_viewport with viewport_width + viewport_height to override the viewport for the current session (e.g. before screenshotting a 1920×1080 HTML composition that would otherwise be cropped to the phone viewport); pass reset=true to drop the session override and fall back to the global browser setting. Use get_cookies to retrieve cookies for the current page URL / current site root domain only (including HttpOnly cookies). get_cookies supports optional 'keyword' (filter by cookie name) and 'fuzzy' (true=contains match, false=exact match, default true). It returns only a summary and an offload env file path — raw cookie values are NOT included in the tool response. To reuse cookies in shell commands: `. /var/minis/offloads/env_cookies_xxx.sh && command`. You may define alias variables when needed. Use set_cookies to write cookies into the current page's cookie store via the native cookie store (so even HttpOnly cookies, which JS cannot set, land). Pass a 'cookies' array of objects, each with name + value (required) and optional domain (defaults to the current page host), path (defaults to '/'), secure, http_only, and expires (Unix timestamp in seconds; omit for a session cookie). Use wait_for_dom_stable to wait until the page DOM stops changing (useful after navigation or interactions that trigger async data loading — polls every 0.5s, resolves when mutation rate gradient is stable for 3+ intervals, default timeout 10s). Use tab_id to target a specific tab (defaults to the most recently used tab).",
+                description: isDelegatedWorkerSession
+                    ? "Read web content without interacting with the site. Allowed actions are navigation, screenshots, text/readable extraction, scrolling, page/element inspection, tab listing, and waiting for the DOM to settle. Click, type, scripts, cookies, downloads, and browser-setting changes are unavailable."
+                    : "Control a web browser with up to 3 tabs. Do NOT use this tool for minis:// action URLs (open_terminal, views, settings) — those are app deep links, use Markdown links in chat instead. The browser supports both web URLs and minis:// resource URLs. Use minis:// URLs to preview session files (e.g. navigate to minis://workspace/index.html). Sub-resources (JS, CSS, images, fonts) referenced via minis:// absolute paths or relative paths within HTML pages resolve correctly. Use navigate to open URLs, screenshot to see the page (returns an image), click/type to interact with elements, get_text/get_readable to extract content, scroll to navigate long pages, scroll_and_collect to scroll through infinite-scroll/virtual-rendered pages (like Twitter/X timelines) and accumulate unique content items across scroll positions in a single call, find_elements to discover interactive elements, get_page_info for page metadata, get_backbone to get a structural overview of the page DOM as a simplified tree, fetch to download files/resources using the page's session (returns metadata and a minis:// URL), new_tab to open an additional tab, close_tab to close a tab, and list_tabs to see all open tabs. Use set_viewport with viewport_width + viewport_height to override the viewport for the current session (e.g. before screenshotting a 1920×1080 HTML composition that would otherwise be cropped to the phone viewport); pass reset=true to drop the session override and fall back to the global browser setting. Use get_cookies to retrieve cookies for the current page URL / current site root domain only (including HttpOnly cookies). get_cookies supports optional 'keyword' (filter by cookie name) and 'fuzzy' (true=contains match, false=exact match, default true). It returns only a summary and an offload env file path — raw cookie values are NOT included in the tool response. To reuse cookies in shell commands: `. /var/minis/offloads/env_cookies_xxx.sh && command`. You may define alias variables when needed. Use set_cookies to write cookies into the current page's cookie store via the native cookie store (so even HttpOnly cookies, which JS cannot set, land). Pass a 'cookies' array of objects, each with name + value (required) and optional domain (defaults to the current page host), path (defaults to '/'), secure, http_only, and expires (Unix timestamp in seconds; omit for a session cookie). Use wait_for_dom_stable to wait until the page DOM stops changing (useful after navigation or interactions that trigger async data loading — polls every 0.5s, resolves when mutation rate gradient is stable for 3+ intervals, default timeout 10s). Use tab_id to target a specific tab (defaults to the most recently used tab).",
                 parameters: [
                     "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary of what this tool call does, shown to the user (e.g. 'Open Wikipedia homepage', 'Take screenshot of current page'). Use the same language as the user."),
-                    "action": AgentToolParam(type: .string, description: "The browser action to perform", enumValues: BrowserAction.allCases.map(\.rawValue)),
+                    "action": AgentToolParam(type: .string, description: "The browser action to perform", enumValues: browserActions.map(\.rawValue)),
                     "url": AgentToolParam(type: .string, description: "URL to navigate to (for navigate action) or resource to download (for fetch action)"),
                     "selector": AgentToolParam(type: .string, description: "CSS selector for targeting elements (click, type, get_text, scroll, hover, find_elements). For scroll: specify a scrollable container to scroll (e.g. 'div.timeline'); if omitted, auto-detects the best scrollable element."),
                     "text": AgentToolParam(type: .string, description: "Text to type (for type action)"),
@@ -135,6 +276,25 @@ extension AIChatViewModel {
                 ],
                 required: ["tool_title", "path"],
                 propertyOrdering: ["tool_title", "path"]
+            ))
+        }
+
+        if isDelegatedWorkerSession {
+            return tools.filter { Self.delegatedWorkerToolNames.contains($0.name) }
+        }
+
+        if availableWorkerGroup() != nil {
+            tools.append(AgentToolDefinition(
+                name: "delegate_task",
+                description: "Delegate one bounded, low-risk, read-only task to an independent worker agent from the configured Worker Group. Multiple calls in one response run concurrently (maximum three). The worker cannot delegate further or use shell/file/memory writes. You remain responsible for evaluating its output and answering the user.",
+                parameters: [
+                    "tool_title": AgentToolParam(type: .string, description: "A concise 5-10 word summary shown to the user. Use the same language as the user."),
+                    "task": AgentToolParam(type: .string, description: "A complete, self-contained task for the worker, including relevant facts, constraints, and acceptance criteria."),
+                    "expected_output": AgentToolParam(type: .string, description: "Optional output format or evidence the worker should return."),
+                    "timeout_seconds": AgentToolParam(type: .integer, description: "Optional end-to-end timeout in seconds, including queue and setup. Defaults to 180; clamped to 10-900."),
+                ],
+                required: ["tool_title", "task"],
+                propertyOrdering: ["tool_title", "task", "expected_output", "timeout_seconds"]
             ))
         }
 

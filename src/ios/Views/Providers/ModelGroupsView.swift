@@ -71,6 +71,13 @@ struct ModelGroupsView: View {
                         )
                     )
                     GroupSlotPicker(
+                        label: "Worker Group",
+                        selection: Binding(
+                            get: { store.workerGroupId },
+                            set: { store.workerGroupId = $0 }
+                        )
+                    )
+                    GroupSlotPicker(
                         label: "Voice Input",
                         selection: Binding(
                             get: { store.voiceInputGroupId },
@@ -89,7 +96,7 @@ struct ModelGroupsView: View {
                 } header: {
                     Text("Defaults")
                 } footer: {
-                    Text("Primary is used for main agent tasks. Sub is used for lightweight tasks like title generation. Voice Input/Output pick a group whose audio-capable models drive speech-to-text and text-to-speech; if none is set, the offline System voice is used.")
+                    Text("Primary is used for main agent tasks. Sub is used for lightweight tasks like title generation. Worker Group runs explicit read-only tasks delegated by the main agent, with up to three workers at once. Voice Input/Output pick a group whose audio-capable models drive speech-to-text and text-to-speech; if none is set, the offline System voice is used.")
                 }
             }
 
@@ -205,6 +212,10 @@ private struct GroupRow: View {
         store.defaultSubGroupId == group.id
     }
 
+    private var isWorkerDefault: Bool {
+        store.workerGroupId == group.id
+    }
+
     private var memberSummary: String {
         let entries = group.memberEntryIds.compactMap { store.entry(for: $0) }
         if entries.isEmpty { return String(localized: "No models") }
@@ -301,6 +312,9 @@ private struct GroupRow: View {
                 }
                 if isSubDefault {
                     badge("Sub", color: .orange)
+                }
+                if isWorkerDefault {
+                    badge("Worker", color: .green)
                 }
             }
 

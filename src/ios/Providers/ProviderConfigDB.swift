@@ -627,6 +627,9 @@ actor ProviderConfigDB {
         if let v = config.defaultSubGroupId {
             setLocalKVRow("defaultSubGroupId", value: v)
         }
+        if let v = config.workerGroupId {
+            setLocalKVRow("workerGroupId", value: v)
+        }
         // Voice group selectors — per-device, like the default group ids.
         if let v = config.voiceInputGroupId {
             setLocalKVRow("voiceInputGroupId", value: v)
@@ -802,6 +805,7 @@ actor ProviderConfigDB {
         // Local-only fields.
         let defaultPrimary = localKV("defaultPrimaryGroupId")
         let defaultSub = localKV("defaultSubGroupId")
+        let workerGroup = localKV("workerGroupId")
         let bindings = loadAllSessionBindings()
         let inferCfgs = loadAllSessionInferenceConfigs()
         let agentLoopEntries = loadAgentLoopIds(kind: "entry")
@@ -815,6 +819,7 @@ actor ProviderConfigDB {
             modelGroups: groups,
             defaultPrimaryGroupId: defaultPrimary,
             defaultSubGroupId: defaultSub,
+            workerGroupId: workerGroup,
             sessionBindings: bindings,
             agentLoopModelEntryIds: agentLoopEntries,
             agentLoopGroupIds: agentLoopGroups,

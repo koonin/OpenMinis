@@ -4071,7 +4071,8 @@ struct AIChatView: View {
         // still loading. Only count `.ready` attachments as sendable content, so
         // a composer holding ONLY failed/loading chips (and no text) can't send.
         let hasReadyAttachment = vm.attachments.contains { $0.loadState == .ready }
-        return ready && !vm.hasLoadingAttachments && (hasText || hasReadyAttachment)
+        return ready && !vm.isLoadingSession && !vm.hasLoadingAttachments
+            && (hasText || hasReadyAttachment)
     }
 
     private var canEnqueue: Bool {

@@ -103,30 +103,141 @@ extension AIChatViewModel {
         return "minis://\(namespace)/\(encoded)"
     }
 
+    /// Canonical containment check used after guest→host path resolution.
+    /// `standardizedFileURL` blocks lexical prefix tricks, while
+    /// `resolvingSymlinksInPath` prevents a path inside an allowed directory
+    /// from pointing at another session (or any location outside that root).
+    nonisolated static func canonicalFileURL(_ candidate: URL, isContainedIn root: URL) -> Bool {
+        func normalizeSystemAlias(_ path: String) -> String {
+            // Darwin commonly exposes /var through /private/var. Treat only
+            // that OS-level alias as equivalent; any other root rewrite is a
+            // real symlink and must fail closed.
+            path.hasPrefix("/private/var/")
+                ? String(path.dropFirst("/private".count))
+                : path
+        }
+        let lexicalRoot = normalizeSystemAlias(root.standardizedFileURL.path)
+        let canonicalCandidate = candidate.standardizedFileURL
+            .resolvingSymlinksInPath().standardizedFileURL.path
+        let canonicalRoot = root.standardizedFileURL
+            .resolvingSymlinksInPath().standardizedFileURL.path
+        guard lexicalRoot == normalizeSystemAlias(canonicalRoot) else {
+            return false
+        }
+        return canonicalCandidate == canonicalRoot
+            || canonicalCandidate.hasPrefix(canonicalRoot + "/")
+    }
+
+    private func delegatedWorkerReadRoot(
+        for normalizedGuestPath: String,
+        sessionId: String
+    ) -> URL? {
+        let sessionBase = Self.minisPersistentBase
+            .appendingPathComponent(sessionId, isDirectory: true)
+        let mappings: [(guest: String, host: URL)] = [
+            (Self.minisWorkspaceLinuxDir,
+             sessionBase.appendingPathComponent("workspace", isDirectory: true)),
+            (Self.minisAttachmentsLinuxDir,
+             sessionBase.appendingPathComponent("attachments", isDirectory: true)),
+            (Self.minisOffloadsLinuxDir,
+             sessionBase.appendingPathComponent("offloads", isDirectory: true)),
+            (Self.minisBrowserLinuxDir,
+             sessionBase.appendingPathComponent("browser", isDirectory: true)),
+            (Self.minisSharedLinuxDir, Self.minisSharedPersistentDir),
+        ]
+        return mappings.first { mapping in
+            normalizedGuestPath == mapping.guest
+                || normalizedGuestPath.hasPrefix(mapping.guest + "/")
+        }?.host
+    }
+
+    /// Revalidates both the logical guest namespace and the canonical host
+    /// destination for a delegated worker. Kept internal so each direct reader
+    /// can repeat the check immediately before opening the file.
+    func delegatedWorkerResolvedReadURLIsAllowed(
+        _ hostURL: URL,
+        requestedPath: String
+    ) -> Bool {
+        guard isDelegatedWorkerSession,
+              let sid = sessionId,
+              let normalized = Self.normalizedDelegatedWorkerReadPath(requestedPath),
+              let root = delegatedWorkerReadRoot(for: normalized, sessionId: sid) else {
+            return false
+        }
+        return Self.canonicalFileURL(hostURL, isContainedIn: root)
+    }
+
     /// Resolve a Linux path for direct file reads (read_image, file_read, file_write).
     /// For /var/minis/ paths, queries ISHExecutionCoordinator's active bind mount table
     /// to get the actual host URL, avoiding races when mounts switch between concurrent sessions.
     /// Falls back to resolveHostPath for non-/var/minis/ paths (e.g. /tmp, /root).
     func resolvePathForDirectRead(_ linuxPath: String) async -> URL? {
-        if linuxPath.hasPrefix("/var/minis/") || linuxPath == "/var/minis" {
-            if let resolved = await ISHExecutionCoordinator.shared.hostURL(for: linuxPath) {
+        let pathToResolve: String
+        let boundSessionId: String?
+        if isDelegatedWorkerSession {
+            guard let sid = self.sessionId,
+                  let normalized = Self.normalizedDelegatedWorkerReadPath(linuxPath) else {
+                logger.warning("📂[RESOLVE-worker] blocked invalid/unscoped path=\(linuxPath)")
+                return nil
+            }
+            pathToResolve = normalized
+            // Capture a concrete ID before crossing the actor boundary. A
+            // delegated read must never let the coordinator substitute its
+            // process-global mountedSessionId.
+            boundSessionId = sid
+        } else {
+            pathToResolve = linuxPath
+            boundSessionId = self.sessionId
+        }
+
+        if pathToResolve.hasPrefix("/var/minis/") || pathToResolve == "/var/minis" {
+            // Always provide this VM's session explicitly. Omitting it lets the
+            // coordinator consult its process-global mountedSessionId, which is
+            // last-writer-wins across concurrent parent/worker sessions.
+            if let resolved = await ISHExecutionCoordinator.shared.hostURL(
+                for: pathToResolve,
+                sessionId: boundSessionId
+            ) {
                 let exists = FileManager.default.fileExists(atPath: resolved.path)
-                logger.notice("📂[RESOLVE] \(linuxPath) → \(resolved.path) exists=\(exists) sid=\(self.sessionId ?? "nil")")
-                if exists { return resolved }
+                logger.notice("📂[RESOLVE] \(pathToResolve) → \(resolved.path) exists=\(exists) sid=\(self.sessionId ?? "nil")")
+                if exists {
+                    if isDelegatedWorkerSession,
+                       !delegatedWorkerResolvedReadURLIsAllowed(resolved, requestedPath: pathToResolve) {
+                        logger.error("📂[RESOLVE-worker] canonical root rejection guest=\(pathToResolve) host=\(resolved.path) sid=\(self.sessionId ?? "nil")")
+                        return nil
+                    }
+                    return resolved
+                }
                 // Mount table returned a stale path — fall through to session/rootfs fallbacks
                 logger.notice("📂[RESOLVE] stale mount entry, trying fallbacks…")
             }
             // Mount table has no entry — fall back to resolveMinisURL with self.sessionId
-            if let minisURL = linuxPathToMinisURL(linuxPath),
+            if let minisURL = linuxPathToMinisURL(pathToResolve),
                let resolved = resolveMinisURL(minisURL) {
                 let exists = FileManager.default.fileExists(atPath: resolved.path)
-                logger.notice("📂[RESOLVE-sessionFallback] \(linuxPath) → \(resolved.path) exists=\(exists) sid=\(self.sessionId ?? "nil")")
+                logger.notice("📂[RESOLVE-sessionFallback] \(pathToResolve) → \(resolved.path) exists=\(exists) sid=\(self.sessionId ?? "nil")")
+                if isDelegatedWorkerSession {
+                    guard exists,
+                          delegatedWorkerResolvedReadURLIsAllowed(
+                            resolved,
+                            requestedPath: pathToResolve
+                          ) else {
+                        logger.error("📂[RESOLVE-worker] rejected session fallback guest=\(pathToResolve) host=\(resolved.path) sid=\(self.sessionId ?? "nil")")
+                        return nil
+                    }
+                }
                 return resolved
             }
         }
-        let fallback = resolveHostPath(linuxPath)
+
+        // A worker never falls through to the process-global fakefs/rootfs.
+        // Its entire readable surface is the explicitly mapped session roots
+        // (plus the approved global shared root) validated above.
+        if isDelegatedWorkerSession { return nil }
+
+        let fallback = resolveHostPath(pathToResolve)
         let exists = fallback.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
-        logger.notice("📂[RESOLVE-hostPath] \(linuxPath) → hostPath=\(fallback?.path ?? "nil") exists=\(exists)")
+        logger.notice("📂[RESOLVE-hostPath] \(pathToResolve) → hostPath=\(fallback?.path ?? "nil") exists=\(exists)")
         return fallback
     }
 
@@ -238,6 +349,13 @@ extension AIChatViewModel {
 
         guard let hostURL = await resolvePathForDirectRead(path) else {
             return FileToolResult(output: "Error: Invalid path: \(path)", success: false)
+        }
+        if isDelegatedWorkerSession,
+           !delegatedWorkerResolvedReadURLIsAllowed(hostURL, requestedPath: path) {
+            return FileToolResult(
+                output: "Error: Resolved file escapes this worker session's allowed roots.",
+                success: false
+            )
         }
 
         let offset = max(1, (dict["offset"] as? Int) ?? 1)

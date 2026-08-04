@@ -2134,7 +2134,14 @@ final class CloudSyncEngine: ObservableObject {
             if let def = local.defaultSubGroupId, let replacement = groupIdRewrites[def] {
                 local.defaultSubGroupId = replacement
             }
+            if let worker = local.workerGroupId, let replacement = groupIdRewrites[worker] {
+                local.workerGroupId = replacement
+            }
             local.agentLoopGroupIds = local.agentLoopGroupIds.map { groupIdRewrites[$0] ?? $0 }
+        }
+        if let worker = local.workerGroupId,
+           !local.modelGroups.contains(where: { $0.id == worker }) {
+            local.workerGroupId = nil
         }
 
         // 4. Don't touch: defaultPrimaryGroupId, defaultSubGroupId, agentLoopModelEntryIds,

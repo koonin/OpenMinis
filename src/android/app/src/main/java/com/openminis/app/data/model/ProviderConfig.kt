@@ -274,6 +274,11 @@ data class ProviderConfig(
     val modelGroups: MutableList<ModelGroup> = mutableListOf(),
     var defaultPrimaryGroupId: String? = null,
     var defaultSubGroupId: String? = null,
+    // Optional group used by delegate_task. Unlike defaultSubGroupId, this is
+    // an explicit agent-loop worker binding: when absent or unusable the
+    // delegation tool is not exposed and the primary model is never used as a
+    // silent fallback.
+    var workerGroupId: String? = null,
     // [T-android-provider-voice] Voice Input / Voice Output group bindings —
     // mirrors iOS ProviderConfig.voiceInputGroupId / voiceOutputGroupId
     // (per-device, provider_local_kv on iOS; meta KV rows here). Old persisted
