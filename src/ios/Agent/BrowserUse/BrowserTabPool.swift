@@ -192,6 +192,11 @@ final class BrowserTabPoolRegistry {
 final class BrowserTabPool: ObservableObject {
     static let maxTabs = 3
 
+    /// Optional per-session ceiling. Normal conversations leave this nil and
+    /// retain the existing 300-second recovery window; delegated workers set a
+    /// shorter budget so one wedged page cannot consume their whole run.
+    var perActionDeadTimeout: TimeInterval?
+
     #if DEBUG
     /// Debug-only weak reference for the debug server to access the active pool.
     static weak var debugInstance: BrowserTabPool?
@@ -250,6 +255,11 @@ final class BrowserTabPool: ObservableObject {
     /// value (Task is a struct — no identity `===`).
     private var tabSerialChains: [Int: (token: UInt64, task: Task<Void, Never>)] = [:]
     private var nextSerialToken: UInt64 = 0
+    /// Tabs whose manager operation currently owns the serial slot. A run can
+    /// flip isProcessing=false before cancellation has unwound WebKit; keeping
+    /// these tabs busy prevents releaseAllTabs from making a poisoned manager
+    /// reusable during that short window.
+    private var executingTabIds: Set<Int> = []
 
     /// Max time a browser_use call waits to acquire a tab id's serial slot, i.e.
     /// for the in-flight operation on that SAME tab to finish. This is the
@@ -905,6 +915,8 @@ final class BrowserTabPool: ObservableObject {
             logger.info("[PoolTiming] serial_slot_waited elapsed=\(serialAcquiredMs)ms tab=\(targetId)")
         }
         defer { releaseSerialSlot() }
+        executingTabIds.insert(targetId)
+        defer { executingTabIds.remove(targetId) }
 
         // Re-resolve the tab by id — `idx` was computed before the serial-slot
         // await, during which the tabs array may have changed (idle reclaim,
@@ -964,7 +976,7 @@ final class BrowserTabPool: ObservableObject {
                 r.text = "[Note] Reused existing tab \(targetId): it previously showed \(sw.oldURL) and has now been navigated to the new URL. Any earlier content on tab \(targetId) is gone; use tab_id \(targetId) to operate on THIS page.\n" + r.text
             }
             result = Self.stampTabId(r, targetId: targetId)
-        } catch is ActionDeadTimeout {
+        } catch let timeout as ActionDeadTimeout {
             // [T-browser-bg-stuck-diag] The action blew past actionDeadTimeout.
             // The tab is wedged and unrecoverable in place; drop it and open a
             // fresh one, then tell the model exactly what happened, on which new
@@ -974,12 +986,20 @@ final class BrowserTabPool: ObservableObject {
             let (newId, deadURL) = rebuildDeadTab(oldId: targetId)
             logger.warning("[PoolTiming] action_DEAD elapsed=\(elapsed)s tab=\(targetId) action=\(input.action.rawValue) → rebuilt as tab \(newId)")
             let urlPart = deadURL.isEmpty ? "" : " while on \(deadURL)"
-            var msg = "Browser tab \(targetId) became unresponsive: the '\(input.action.rawValue)' action ran for over \(Int(Self.actionDeadTimeout))s without completing\(urlPart) — its web page most likely wedged (an infinite script, a never-completing navigation, or a background-suspended renderer). The tab could not be recovered and was closed. A fresh tab (id \(newId)) has been opened for you. To continue, retry on tab_id \(newId)"
+            var msg = "Browser tab \(targetId) became unresponsive: the '\(input.action.rawValue)' action ran for over \(Int(timeout.seconds))s without completing\(urlPart) — its web page most likely wedged (an infinite script, a never-completing navigation, or a background-suspended renderer). The tab could not be recovered and was closed. A fresh tab (id \(newId)) has been opened for you. To continue, retry on tab_id \(newId)"
             if !deadURL.isEmpty { msg += " (e.g. navigate it to \(deadURL) again, or take a different approach if that page keeps hanging)" }
             msg += "."
             var r = BrowserActionResult(text: msg, success: false, tabId: newId)
             r.pageURL = deadURL.isEmpty ? nil : deadURL
             return r
+        } catch is CancellationError {
+            // Cancellation wins the wall-clock race before a wedged WebKit
+            // callback necessarily returns. Remove and invalidate this manager
+            // while the serial slot is still held so Resume/a later action can
+            // only acquire a new WKWebView, never the abandoned one.
+            let deadURL = quarantineCancelledTab(id: targetId)
+            logger.info("[PoolTiming] action_CANCELLED tab=\(targetId) action=\(input.action.rawValue) quarantinedURL=\(deadURL.prefix(60))")
+            throw CancellationError()
         } catch {
             // Same check on the error path — preempt may have torn the
             // WebView out from under the action.
@@ -1008,8 +1028,28 @@ final class BrowserTabPool: ObservableObject {
     static let actionDeadTimeout: TimeInterval = 300
     #endif
 
+    /// Browser budget used by an internal worker. Keep it below the worker's
+    /// total wall-clock budget so the model has time to try another source and
+    /// still synthesize a result (180s default worker → 60s browser action).
+    static func delegatedWorkerActionDeadTimeout(totalTimeoutSeconds: Int) -> TimeInterval {
+        DelegatedSessionPolicy.browserActionDeadTimeout(
+            totalTimeoutSeconds: totalTimeoutSeconds
+        )
+    }
+
+    private var effectiveActionDeadTimeout: TimeInterval {
+        #if DEBUG
+        // The debug override remains authoritative for deterministic device
+        // tests, even when this pool belongs to a delegated worker.
+        if let override = Self.actionDeadTimeoutOverride { return override }
+        #endif
+        return perActionDeadTimeout ?? 300
+    }
+
     /// Thrown internally by `withDeadOnTimeout` when the wall clock elapses.
-    private struct ActionDeadTimeout: Error {}
+    private struct ActionDeadTimeout: Error {
+        let seconds: TimeInterval
+    }
 
     /// One-shot race arbiter: exactly one of {operation completes, timer fires}
     /// resumes the awaiting continuation; the other's `finish` is dropped. The
@@ -1021,7 +1061,7 @@ final class BrowserTabPool: ObservableObject {
         private var done = false
         private var cont: CheckedContinuation<BrowserActionResult, Error>?
         private var pending: Result<BrowserActionResult, Error>?
-        var onFinish: (() -> Void)?
+        private var onFinish: (() -> Void)?
 
         func attach(_ c: CheckedContinuation<BrowserActionResult, Error>) {
             lock.lock()
@@ -1043,6 +1083,19 @@ final class BrowserTabPool: ObservableObject {
             cleanup?()
             c?.resume(with: result)
         }
+
+        /// Install cleanup without racing a very fast operation/timer finish.
+        /// If the race already completed, run cleanup immediately.
+        func setCleanup(_ cleanup: @escaping () -> Void) {
+            lock.lock()
+            if done {
+                lock.unlock()
+                cleanup()
+                return
+            }
+            onFinish = cleanup
+            lock.unlock()
+        }
     }
 
     /// Run `operation` with a wall-clock deadline. If it completes first, return
@@ -1062,10 +1115,9 @@ final class BrowserTabPool: ObservableObject {
         url: String,
         _ operation: @escaping () async throws -> BrowserActionResult
     ) async throws -> BrowserActionResult {
-        let start = CFAbsoluteTimeGetCurrent()
         // Read the MainActor-isolated timeout once, here, so the nonisolated
         // timer task below captures a plain value.
-        let deadline = Self.actionDeadTimeout
+        let deadline = effectiveActionDeadTimeout
         logger.info("[DeadTimeout] armed deadline=\(Int(deadline))s tab=\(targetId) action=\(action)")
         // A structured TaskGroup will NOT work here: it implicitly awaits ALL
         // child tasks before returning, and the wedged `operation()` doesn't
@@ -1084,12 +1136,18 @@ final class BrowserTabPool: ObservableObject {
         timer.schedule(deadline: .now() + deadline)
         timer.setEventHandler {
             logger.warning("[DeadTimeout] FIRED tab=\(targetId) action=\(action)")
-            box.finish(.failure(ActionDeadTimeout()))
+            box.finish(.failure(ActionDeadTimeout(seconds: deadline)))
         }
         timer.resume()
-        box.onFinish = { timer.cancel(); opTask.cancel() }
-        let raced: BrowserActionResult = try await withCheckedThrowingContinuation { cont in
-            box.attach(cont)
+        box.setCleanup { timer.cancel(); opTask.cancel() }
+        let raced: BrowserActionResult = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { cont in
+                box.attach(cont)
+            }
+        } onCancel: {
+            // A worker deadline or parent cancellation must release the caller
+            // immediately instead of leaving it parked until the 300s timer.
+            box.finish(.failure(CancellationError()))
         }
         return raced
     }
@@ -1103,7 +1161,9 @@ final class BrowserTabPool: ObservableObject {
         // on device), so we simply drop it — removing it from `tabs` frees its
         // slot in the registry, which counts live tabs directly (no separate
         // release call). Stash the last-known URL for the model.
-        let deadURL = tabs.first(where: { $0.id == oldId })?.manager.currentURL ?? ""
+        let deadTab = tabs.first(where: { $0.id == oldId })
+        let deadURL = deadTab?.manager.currentURL ?? ""
+        deadTab?.manager.invalidateForPoolRemoval()
         tabs.removeAll { $0.id == oldId }
         if selectedTabId == oldId { selectedTabId = tabs.first?.id ?? 0 }
 
@@ -1114,11 +1174,29 @@ final class BrowserTabPool: ObservableObject {
         return (newId, deadURL)
     }
 
+    /// Isolate a cancelled operation without waiting for the underlying WebKit
+    /// continuation. No replacement is opened here; the next real browser
+    /// action creates a clean manager on demand.
+    @discardableResult
+    private func quarantineCancelledTab(id: Int) -> String {
+        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return "" }
+        let tab = tabs[idx]
+        let url = tab.manager.currentURL
+        if !url.isEmpty { savedURLs[id] = url }
+        tab.manager.invalidateForPoolRemoval()
+        tab.graceExpiryTask?.cancel()
+        tabs.remove(at: idx)
+        if selectedTabId == id { selectedTabId = tabs.first?.id ?? 0 }
+        persistURLs()
+        return url
+    }
+
     /// Release all tabs (called when isProcessing → false). Keeps WKWebViews alive
     /// but stamps lastActivityDate so the idle timer can reclaim them later.
     func releaseAllTabs() {
         let now = Date()
         for i in tabs.indices {
+            guard !executingTabIds.contains(tabs[i].id) else { continue }
             tabs[i].graceExpiryTask?.cancel()
             tabs[i].graceExpiryTask = nil
             tabs[i].inUse = false
@@ -1251,7 +1329,7 @@ final class BrowserTabPool: ObservableObject {
         if !url.isEmpty {
             savedURLs[id] = url
         }
-        tab.manager.stopLoading()
+        tab.manager.invalidateForPoolRemoval()
         tabs.remove(at: idx)
         preemptedTabIds.insert(id)
         if selectedTabId == id {

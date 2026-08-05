@@ -177,6 +177,7 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         let registry = BrowserTabPoolRegistry.shared
         marker["webViewTotalTabs"] = registry.totalLiveTabs()
         marker["webViewGlobalCap"] = BrowserTabPoolRegistry.globalTabCap
+        marker["browserInflightActionCount"] = BrowserResourceMonitor.shared.inflightActionCount
         let tabSnapshots = registry.allTabSnapshots()
         marker["webViewTabs"] = tabSnapshots.map { tab -> [String: Any] in
             [
@@ -229,7 +230,7 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         let now = df.string(from: Date())
 
         let marker: [String: Any] = [
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "runID": currentRunID,
             "build": "\(version) (\(build))",
             "pid": pid,
@@ -298,6 +299,7 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         let webViewTotalTabs = markerInfo?["webViewTotalTabs"] as? Int
         let webViewGlobalCap = markerInfo?["webViewGlobalCap"] as? Int
         let webViewTabs = markerInfo?["webViewTabs"] as? [[String: Any]]
+        let browserInflightActionCount = markerInfo?["browserInflightActionCount"] as? Int
         let savedLogLines = markerInfo?["logLinesAtLastObservation"] as? [String]
         let persistedCrashStack = try? String(contentsOf: Self.crashStackURL, encoding: .utf8)
         let persistedHangSnapshot = try? String(contentsOf: Self.hangSnapshotURL, encoding: .utf8)
@@ -309,6 +311,11 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         // says "idle", normal OS process reclamation is expected and should not
         // be surfaced to the user as a crash. Require every field so an older or
         // incomplete marker is never silently discarded.
+        let browserWasExplicitlyIdle = StaleMarkerClassifier.browserWasExplicitlyIdle(
+            totalTabs: webViewTotalTabs,
+            tabs: webViewTabs,
+            inflightActionCount: browserInflightActionCount
+        )
         let explicitlyIdleBackground =
             lastPhase == "background"
             && activeSessionCount == 0
@@ -317,7 +324,7 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
             && bkaSilentAudioPlaying == false
             && bkaAudioSessionActive == false
             && bkaStopDebouncePending == false
-            && webViewTotalTabs == 0
+            && browserWasExplicitlyIdle
 
         if explicitlyIdleBackground && !hasCrashHandlerEvidence && !hasHangDetectorEvidence {
             logger.info(
@@ -370,6 +377,7 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
             bkaLastEvent: bkaLastEvent,
             bkaLastLifecycle: bkaLastLifecycle,
             bkaAudioInterruption: bkaAudioInterruption,
+            browserInflightActionCount: browserInflightActionCount,
             webViewTotalTabs: webViewTotalTabs,
             webViewGlobalCap: webViewGlobalCap,
             webViewTabs: webViewTabs
@@ -502,6 +510,7 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         bkaLastEvent: String? = nil,
         bkaLastLifecycle: String? = nil,
         bkaAudioInterruption: String? = nil,
+        browserInflightActionCount: Int? = nil,
         webViewTotalTabs: Int? = nil,
         webViewGlobalCap: Int? = nil,
         webViewTabs: [[String: Any]]? = nil
@@ -648,6 +657,9 @@ final class CrashReporter: NSObject, MXMetricManagerSubscriber {
         report += "\n\n--- Active WebViews (at last observation) ---\n"
         if let total = webViewTotalTabs, let cap = webViewGlobalCap {
             report += "Total tabs: \(total) / \(cap) (global cap)\n"
+        }
+        if let inflight = browserInflightActionCount {
+            report += "Browser actions in flight: \(inflight)\n"
         }
         if let tabs = webViewTabs, !tabs.isEmpty {
             report += "\n"

@@ -330,7 +330,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 let src = "vm=\(self.vmInstanceId) isProcessing=\(processing)"
                 logger.info("🔄SESSION [vm=\(self.vmInstanceId)] isProcessing=\(processing) key=\(activeKey) draftId=\(self.draftId ?? "nil") sessionId=\(self.sessionId ?? "nil")")
                 if processing {
-                    SessionActivityTracker.shared.setActive(activeKey, source: src)
+                    SessionActivityTracker.shared.setActive(
+                        activeKey,
+                        source: src,
+                        isUserFacing: !self.isDelegatedWorkerSession
+                    )
                     if let sid = self.sessionId {
                         Task {
                             if let session = await ChatStore.shared.getSession(sid),
@@ -561,16 +565,20 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         didSet {
             _deinitSnapshot = "isProcessing=\(isProcessing) session=\(sessionId ?? "nil") draft=\(draftId ?? "nil")"
             if isProcessing && !oldValue {
-                // Agent loop starting — defer iCloud sync sends until completion
-                Task { await ChatStore.shared.setSyncSendDeferred(true) }
-                // [T-ios-defer-icloud-sync-after-stop] A new turn supersedes any
-                // pending post-stop hold; clear it WITHOUT a catch-up sync (the
-                // new turn re-pauses sync via setSyncSendDeferred anyway).
-                if postStopSyncHoldUntil != nil {
-                    postStopSyncHoldUntil = nil
-                    postStopSyncHoldTimer?.invalidate()
-                    postStopSyncHoldTimer = nil
-                    logger.info("[SyncHold] CLEAR — new turn started, superseding post-stop hold")
+                if !isDelegatedWorkerSession {
+                    // Agent loop starting — defer iCloud sync sends until completion.
+                    // Hidden workers never enter sync and must not pause/resume the
+                    // parent's global sync pipeline.
+                    Task { await ChatStore.shared.setSyncSendDeferred(true) }
+                    // [T-ios-defer-icloud-sync-after-stop] A new turn supersedes any
+                    // pending post-stop hold; clear it WITHOUT a catch-up sync (the
+                    // new turn re-pauses sync via setSyncSendDeferred anyway).
+                    if postStopSyncHoldUntil != nil {
+                        postStopSyncHoldUntil = nil
+                        postStopSyncHoldTimer?.invalidate()
+                        postStopSyncHoldTimer = nil
+                        logger.info("[SyncHold] CLEAR — new turn started, superseding post-stop hold")
+                    }
                 }
                 // Begin watching for main-thread hangs while streaming is
                 // active. Captures a backtrace whenever the main runloop
@@ -586,7 +594,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
                 // candidate. Instead enter the post-stop hold: both directions
                 // stay paused for the grace window, then a single catch-up sync
                 // runs on release (60s timer / leave session / background).
-                beginPostStopSyncHold()
+                if !isDelegatedWorkerSession {
+                    beginPostStopSyncHold()
+                }
                 StreamingHangLogger.shared.release(reason: "isProcessing=false session=\(sessionId ?? "nil")")
                 // [T-ios-ui-frozen-on-tool-while-loop-runs] Force one snapshot
                 // re-apply from the CURRENT in-memory messages at loop end.
@@ -1536,7 +1546,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     private var canSpeakNow: Bool {
         // Enabled AND not muted AND not capturing. `canPlay` folds in the temporary
         // mute (capsule speaker) on top of the full on/off `isEnabled`.
-        VoiceOutputState.shared.canPlay && !VoiceModePreference.shared.isCapturing
+        !isDelegatedWorkerSession
+            && VoiceOutputState.shared.canPlay
+            && !VoiceModePreference.shared.isCapturing
     }
 
     /// True when a configured cloud TTS model is selected (not the offline System
@@ -2283,7 +2295,11 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
             // Defensive: ensure tracker reflects the real session ID after draft→real migration.
             if let sid = self.sessionId, self.isProcessing {
-                SessionActivityTracker.shared.setActive(sid, source: "vm=\(self.vmInstanceId) send/ensureSession draft→real")
+                SessionActivityTracker.shared.setActive(
+                    sid,
+                    source: "vm=\(self.vmInstanceId) send/ensureSession draft→real",
+                    isUserFacing: !self.isDelegatedWorkerSession
+                )
             }
 
             // Copy attachment files to session uploads dir and build metadata
@@ -3466,10 +3482,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         logger.info("✏️ cancelEdit")
     }
 
-    func cancel() {
+    /// Stops the current run. User-initiated stops remain resumable; internal
+    /// worker deadline/parent-cancellation stops are terminal implementation
+    /// details and must not produce a misleading "Continue" state.
+    func cancel(userInitiated: Bool = true) {
         let lastBlocks = (messages.last?.role == .assistant) ? messages.last!.blocks.count : -1
         let lastRole = messages.last.map { $0.role == .assistant ? "assistant" : "user" } ?? "nil"
-        logger.info("⏹️ cancel() START session=\(self.sessionId ?? "nil") isProcessing=\(self.isProcessing) lastRole=\(lastRole) lastBlocks=\(lastBlocks) currentTask=\(self.currentTask != nil)")
+        logger.info("⏹️ cancel() START session=\(self.sessionId ?? "nil") userInitiated=\(userInitiated) isProcessing=\(self.isProcessing) lastRole=\(lastRole) lastBlocks=\(lastBlocks) currentTask=\(self.currentTask != nil)")
         dumpCandidateState("cancel-START")
         // [T-ios-queued-candidate-not-onscreen] Snapshot the queue + on-screen
         // messages at Stop time, and again 500ms later, so we can see whether a
@@ -3506,13 +3525,16 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             NotificationCenter.default.removeObserver(obs)
             foregroundObserver = nil
         }
-        userDidCancel = true
+        userDidCancel = userInitiated
+        if !userInitiated {
+            canResume = false
+        }
         currentTask?.cancel()
         currentTask = nil
         autoRetryAttempt = 0
         autoRetryCountdown = 0
         if let sid = sessionId {
-            logger.info("🔥 cache keep-alive: cancelling on user cancel — session=\(sid.prefix(8))")
+            logger.info("🔥 cache keep-alive: cancelling on \(userInitiated ? "user stop" : "internal stop") — session=\(sid.prefix(8))")
             CacheKeepAliveManager.shared.cancelKeepAlive(sessionId: sid)
         }
         // Don't modify blocks here — the cancelled task may still be writing to them.
@@ -3976,6 +3998,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     }
 
     private func playCompletionHaptic() {
+        guard !isDelegatedWorkerSession else { return }
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
     }
 

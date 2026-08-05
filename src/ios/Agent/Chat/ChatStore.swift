@@ -39,6 +39,11 @@ enum SyncStatus: Equatable {
 
 /// A chat session (conversation thread).
 struct ChatSession: Identifiable, Codable, Hashable {
+    /// Internal worker sessions are persisted so their isolated model/tool loop
+    /// can run normally, but they are implementation details of the parent
+    /// conversation and must not appear as top-level user conversations.
+    static let delegatedWorkerSource = DelegatedSessionPolicy.sessionSource
+
     let id: String
     var title: String?
     var category: String?
@@ -57,6 +62,13 @@ struct ChatSession: Identifiable, Codable, Hashable {
 
     /// Whether this session is pinned to the top of the list.
     var isPinned: Bool { pinnedAt != nil }
+
+    /// Whether this session belongs in user-facing conversation pickers/lists.
+    /// Keep the persisted worker available for execution and diagnostics while
+    /// presenting its status/result through the parent's delegate_task card.
+    var isUserFacingConversation: Bool {
+        DelegatedSessionPolicy.isUserFacing(source: source)
+    }
 
     // MARK: - Equatable / Hashable (cheap, content-via-proxy)
     //
@@ -373,6 +385,10 @@ actor ChatStore {
     // `sessionListCacheDirty`, set true by every list-affecting mutation below.
     // ChatStore is an actor, so these fields need no extra locking.
     private var sessionListCache: [ChatSession]?
+    /// User-visible projection of `sessionListCache`. Keeping this projection
+    /// cached avoids allocating a fresh filtered array during SwiftUI body
+    /// evaluation while preserving `listSessions()` for sync/debug/storage.
+    private var topLevelSessionListCache: [ChatSession]?
     private var sessionListCacheDirty = true
 
     /// [T-ios-listsessions-cache] Mark the cached session list stale. Called by
@@ -381,6 +397,7 @@ actor ChatStore {
     /// field (title/category/pin/model/preview text from new messages).
     private func invalidateSessionListCache() {
         sessionListCacheDirty = true
+        topLevelSessionListCache = nil
     }
 
     init() {
@@ -1099,8 +1116,21 @@ actor ChatStore {
         // [T-ios-listsessions-cache] Store the freshly-built list; subsequent
         // calls return this same array until a mutation invalidates it.
         sessionListCache = sessions
+        topLevelSessionListCache = nil
         sessionListCacheDirty = false
         return sessions
+    }
+
+    /// Sessions that should appear as standalone user conversations. Internal
+    /// delegated workers remain persisted and queryable through `listSessions()`
+    /// but surface only through their parent conversation's task cards.
+    func listTopLevelSessions() -> [ChatSession] {
+        if !sessionListCacheDirty, let cached = topLevelSessionListCache {
+            return cached
+        }
+        let visible = listSessions().filter(\.isUserFacingConversation)
+        topLevelSessionListCache = visible
+        return visible
     }
 
     /// Query sync_devices table and check UserDefaults to find which remote devices have sync enabled.
@@ -1302,7 +1332,8 @@ actor ChatStore {
             SELECT DISTINCT s.id, s.title, s.model_id, s.created_at, s.updated_at, s.category,
                    (SELECT m2.parts_json FROM messages m2
                     WHERE m2.session_id = s.id AND m2.parts_json LIKE ?
-                    ORDER BY m2.sort_order DESC LIMIT 1)
+                    ORDER BY m2.sort_order DESC LIMIT 1),
+                   s.source
             FROM sessions s
             LEFT JOIN messages m ON m.session_id = s.id
             WHERE s.title LIKE ? OR m.parts_json LIKE ?
@@ -1326,19 +1357,26 @@ actor ChatStore {
                 let updatedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 4))
                 let category = sqlite3_column_text(stmt, 5).map { String(cString: $0) }
                 let matchedPartsJSON = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
+                let source = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
 
                 let titleMatched = title?.lowercased().contains(lowerQuery) == true
                 let snippet = matchedPartsJSON.flatMap { extractTextFromPartsJSON($0) }
 
                 let session = ChatSession(
                     id: id, title: title, category: category, modelId: modelId,
-                    createdAt: createdAt, updatedAt: updatedAt, lastMessage: snippet
+                    createdAt: createdAt, updatedAt: updatedAt, lastMessage: snippet,
+                    source: source
                 )
                 results.append(SearchResult(session: session, matchSnippet: snippet, titleMatched: titleMatched))
             }
         }
         sqlite3_finalize(stmt)
         return results
+    }
+
+    /// User-facing search counterpart to `searchSessions(query:)`.
+    func searchTopLevelSessions(query: String) -> [SearchResult] {
+        searchSessions(query: query).filter { $0.session.isUserFacingConversation }
     }
 
     // MARK: - Sessions Get Tool
@@ -2004,7 +2042,9 @@ actor ChatStore {
             touchSession(sessionId)
             markDirty(recordType: "Session", recordId: sessionId)
             // Track for file scanning on flush
-            pendingSyncSessionIds.insert(sessionId)
+            if !isDelegatedWorkerSession(sessionId) {
+                pendingSyncSessionIds.insert(sessionId)
+            }
         }
 
         exec("COMMIT")
@@ -2211,7 +2251,9 @@ actor ChatStore {
         let sql = """
             SELECT m.session_id, m.role, m.parts_json
             FROM messages m
-            WHERE m.sort_order = (
+            JOIN sessions s ON s.id = m.session_id
+            WHERE COALESCE(s.source, '') != ?
+              AND m.sort_order = (
                 SELECT MAX(m2.sort_order) FROM messages m2 WHERE m2.session_id = m.session_id
             )
         """
@@ -2222,6 +2264,7 @@ actor ChatStore {
             logger.error("[ChatStore.interruptedSessionIds] prepare failed: \(err)")
             return []
         }
+        sqlite3_bind_text(stmt, 1, (ChatSession.delegatedWorkerSource as NSString).utf8String, -1, nil)
 
         var result: Set<String> = []
         // A session can have >1 row sharing the max sort_order (tie); take the
@@ -2925,13 +2968,13 @@ actor ChatStore {
     /// Returns nil for global / non-session-scoped types.
     private func parentSessionId(forV1 recordType: String, recordId: String) -> String? {
         switch recordType {
-        case "Session":
+        case "Session", "SessionV2":
             return recordId
-        case "Message":
+        case "Message", "MessageV2":
             return messageSessionId(id: recordId)
-        case "CompactMarker":
+        case "CompactMarker", "CompactMarkerV2":
             return compactMarkerSessionId(id: recordId)
-        case "SessionFile":
+        case "SessionFile", "SessionFileV2":
             // SessionFile recordId is "sessionId:relativePath".
             let parts = recordId.split(separator: ":", maxSplits: 1)
             guard parts.count == 2 else { return nil }
@@ -2952,6 +2995,20 @@ actor ChatStore {
         guard sqlite3_step(stmt) == SQLITE_ROW,
               let cstr = sqlite3_column_text(stmt, 0) else { return nil }
         return String(cString: cstr)
+    }
+
+    /// Delegated workers are an implementation detail of their parent turn.
+    /// Their final output is already persisted in the parent's delegate_task
+    /// result, so syncing the worker tree would create a second conversation
+    /// on another install/device (the sync schemas do not carry `source`).
+    private func isDelegatedWorkerSession(_ sessionId: String) -> Bool {
+        let sql = "SELECT 1 FROM sessions WHERE id = ? AND source = ? LIMIT 1"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
+        sqlite3_bind_text(stmt, 1, (sessionId as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 2, (ChatSession.delegatedWorkerSource as NSString).utf8String, -1, nil)
+        return sqlite3_step(stmt) == SQLITE_ROW
     }
 
     /// Returns every locally-stored session id (for §3.6.0 scenario E
@@ -3584,6 +3641,83 @@ actor ChatStore {
 
     func setSyncZoneName(_ name: String) {
         syncZoneName = name
+        purgeDelegatedWorkerDirtyRecords()
+        stageLegacyDelegatedWorkerCloudCleanupIfNeeded()
+    }
+
+    /// Drop dirty rows produced by older builds before worker sessions were
+    /// excluded centrally. This is local queue cleanup only; it never deletes
+    /// the worker's on-device audit trail.
+    private func purgeDelegatedWorkerDirtyRecords() {
+        let sql = """
+            DELETE FROM sync_dirty_records
+            WHERE operation != 'delete' AND (
+              (record_type IN ('Session', 'SessionV2') AND record_id IN (
+                 SELECT id FROM sessions WHERE source = ?
+              ))
+              OR (record_type IN ('Message', 'MessageV2') AND record_id IN (
+                 SELECT m.id FROM messages m
+                 JOIN sessions s ON s.id = m.session_id
+                 WHERE s.source = ?
+              ))
+              OR (record_type IN ('CompactMarker', 'CompactMarkerV2') AND record_id IN (
+                 SELECT c.id FROM compact_markers c
+                 JOIN sessions s ON s.id = c.session_id
+                 WHERE s.source = ?
+              ))
+              OR (record_type IN ('SessionFile', 'SessionFileV2') AND EXISTS (
+                 SELECT 1 FROM sessions s
+                 WHERE s.source = ? AND record_id LIKE s.id || ':%'
+              ))
+            )
+            """
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        for index in 1...4 {
+            sqlite3_bind_text(stmt, Int32(index), (ChatSession.delegatedWorkerSource as NSString).utf8String, -1, nil)
+        }
+        guard sqlite3_step(stmt) == SQLITE_DONE else { return }
+        let removed = sqlite3_changes(db)
+        if removed > 0 {
+            iCloudLogger.info("[iCloud] removed \(removed) delegated-worker dirty rows")
+        }
+    }
+
+    /// Builds before delegated workers were hidden may already have uploaded
+    /// them without a `source` field. Queue one idempotent delete cascade for
+    /// every locally-known legacy worker so reinstalling/restoring cannot bring
+    /// those implementation-detail conversations back as top-level chats.
+    private func stageLegacyDelegatedWorkerCloudCleanupIfNeeded() {
+        guard !syncZoneName.isEmpty else { return }
+        // Respect the user's category toggles. Leave the migration pending and
+        // retry on a later launch if chat/session-file sync is disabled today.
+        guard UploadPolicy.allowsRecordType("Session"),
+              UploadPolicy.allowsRecordType("SessionFile") else { return }
+        let migrationKey = "cloudSync.delegatedWorkerCleanup.v1"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        let sql = "SELECT id FROM sessions WHERE source = ?"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        sqlite3_bind_text(stmt, 1, (ChatSession.delegatedWorkerSource as NSString).utf8String, -1, nil)
+        var ids: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let cstr = sqlite3_column_text(stmt, 0) {
+                ids.append(String(cString: cstr))
+            }
+        }
+        sqlite3_finalize(stmt)
+
+        for id in ids {
+            markSessionForCloudDeletion(id)
+        }
+        // Dirty rows are crash-safe; once staged, this scan never needs to run
+        // again. Workers created by this build never emit upserts.
+        UserDefaults.standard.set(true, forKey: migrationKey)
+        if !ids.isEmpty {
+            iCloudLogger.info("[iCloud] staged cloud cleanup for \(ids.count) legacy delegated-worker sessions")
+        }
     }
 
     // MARK: - Deferred Sync Dirty Marks
@@ -3639,6 +3773,7 @@ actor ChatStore {
     /// Returns number of files marked.
     @discardableResult
     private func scanAndMarkSessionFiles(sessionId: String, priority: Int = 0) -> Int {
+        guard !isDelegatedWorkerSession(sessionId) else { return 0 }
         let fm = FileManager.default
         let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!
         let sessionDir = library.appendingPathComponent("MinisChat/minis/\(sessionId)")
@@ -4182,6 +4317,12 @@ extension ChatStore {
 
     /// Mark a record as needing sync to iCloud. Only active in DEBUG builds.
     func markDirty(recordType: String, recordId: String, operation: String = "upsert", priority: Int = 0) {
+        if operation != "delete",
+           let sessionId = parentSessionId(forV1: recordType, recordId: recordId),
+           isDelegatedWorkerSession(sessionId) {
+            iCloudLogger.debug("[iCloudTrace] markDirty SKIP delegated worker type=\(recordType) id=\(recordId.prefix(20))")
+            return
+        }
         // DIAG: log every silent early-return so "I added a Skill but
         // no markDirty appears in logs" can be diagnosed without
         // re-instrumenting. Previously both guards returned silently,
@@ -4447,6 +4588,7 @@ extension ChatStore {
     /// the scan progresses, rather than pre-walking the whole tree).
     @discardableResult
     private func stageSessionAndChildrenForReupload(sessionId: String, priority: Int) -> Int {
+        guard !isDelegatedWorkerSession(sessionId) else { return 0 }
         markDirty(recordType: "Session", recordId: sessionId, priority: priority)
         let msgSql = "SELECT id FROM messages WHERE session_id = ?"
         var msgStmt: OpaquePointer?
@@ -5652,12 +5794,18 @@ extension ChatStore {
         iCloudLogger.info("[iCloud] listRemoteSessions: querying deviceId=\(deviceId)")
         let sql = """
             SELECT id, title, category, model_id, created_at, updated_at
-            FROM remote_sessions WHERE device_id = ? ORDER BY updated_at DESC
+            FROM remote_sessions
+            WHERE device_id = ?
+              AND id NOT IN (
+                  SELECT id FROM sessions WHERE source = ?
+              )
+            ORDER BY updated_at DESC
         """
         var stmt: OpaquePointer?
         var sessions: [ChatSession] = []
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
             sqlite3_bind_text(stmt, 1, (deviceId as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, 2, (ChatSession.delegatedWorkerSource as NSString).utf8String, -1, nil)
             while sqlite3_step(stmt) == SQLITE_ROW {
                 sessions.append(ChatSession(
                     id: String(cString: sqlite3_column_text(stmt, 0)),

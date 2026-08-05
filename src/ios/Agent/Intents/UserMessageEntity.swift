@@ -66,8 +66,9 @@ struct UserMessageEntityQuery: EntityQuery {
 
         var results: [UserMessageEntity] = []
         for (sessionId, indices) in bySession {
-            let session = await ChatStore.shared.getSession(sessionId)
-            let title = session?.title ?? "Untitled"
+            guard let session = await ChatStore.shared.getSession(sessionId),
+                  session.isUserFacingConversation else { continue }
+            let title = session.title ?? "Untitled"
             let all = await UserMessageEntity.loadFromDB(sessionId: sessionId, sessionTitle: title)
             results.append(contentsOf: all.filter { indices.contains($0.index - 1) })
         }
@@ -77,14 +78,16 @@ struct UserMessageEntityQuery: EntityQuery {
     func suggestedEntities() async throws -> [UserMessageEntity] {
         // Show only the selected session's messages when available
         if let sessionEntity = retryIntent?.session {
+            guard let session = await ChatStore.shared.getSession(sessionEntity.id),
+                  session.isUserFacingConversation else { return [] }
             return await UserMessageEntity.loadFromDB(
-                sessionId: sessionEntity.id,
-                sessionTitle: sessionEntity.displayName
+                sessionId: session.id,
+                sessionTitle: session.title ?? sessionEntity.displayName
             )
         }
 
         // Fallback (no session selected): recent sessions' messages
-        let sessions = await ChatStore.shared.listSessions()
+        let sessions = await ChatStore.shared.listTopLevelSessions()
         var entities: [UserMessageEntity] = []
         for session in sessions.prefix(10) {
             let msgs = await UserMessageEntity.loadFromDB(

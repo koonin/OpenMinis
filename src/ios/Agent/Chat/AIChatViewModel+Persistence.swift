@@ -787,6 +787,13 @@ extension AIChatViewModel {
     /// (cached VM re-enter) so the detail page's canResume/banner always
     /// matches the list's .paused badge.
     private func recheckCanResumeFromHistory() {
+        // A delegated worker reports its terminal state to the parent tool
+        // card. Reopening/retrying it independently cannot deliver a result
+        // back to the already-running parent and should never be offered.
+        if isDelegatedWorkerSession {
+            canResume = false
+            return
+        }
         guard let sessionId, !isProcessing, let lastEntry = agentHistory.last else { return }
         let isInterrupted: Bool
         if lastEntry.role == .user {
@@ -979,7 +986,11 @@ extension AIChatViewModel {
         // cleared in the $isProcessing sink's inactive branch.
         if isProcessing {
             let src = "vm=\(vmInstanceId) ensureSession draft=\(draftId ?? "nil")→real"
-            SessionActivityTracker.shared.setActive(session.id, source: src)
+            SessionActivityTracker.shared.setActive(
+                session.id,
+                source: src,
+                isUserFacing: !isDelegatedWorkerSession
+            )
             if let did = draftId {
                 SessionActivityTracker.shared.setDraftAlias(draft: did, real: session.id)
                 SessionActivityTracker.shared.setInactive(did, source: src + " (migrate off draftId)")
@@ -1208,7 +1219,9 @@ extension AIChatViewModel {
     /// where the few most-recent sessions all used a model the user has
     /// since removed.
     private static func resolveLastUsedEntry(excludingSessionId: String, store: ProviderConfigStore) async -> ModelEntry? {
-        let recents = await ChatStore.shared.listSessions()
+        // Internal worker models must never become the default for a normal new
+        // chat merely because a worker happened to finish most recently.
+        let recents = await ChatStore.shared.listTopLevelSessions()
         let scanLimit = 20
         var scanned = 0
         for session in recents {

@@ -4,7 +4,7 @@ import Foundation
 
 extension AIChatViewModel {
 
-    static let delegatedWorkerSessionSource = "delegated_worker"
+    static let delegatedWorkerSessionSource = ChatSession.delegatedWorkerSource
 
     /// Browser operations available to delegated workers. These actions only
     /// read or navigate content; interactions, scripts, cookie access, fetches,

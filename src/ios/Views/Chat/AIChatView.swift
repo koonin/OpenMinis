@@ -5036,7 +5036,7 @@ private struct MoveToSessionSheet: View {
             }
         }
         .task {
-            sessions = ChatStore.shared.listSessions()
+            sessions = await ChatStore.shared.listTopLevelSessions()
         }
     }
 
@@ -5052,7 +5052,7 @@ private struct MoveToSessionSheet: View {
         searchTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-            let results = await ChatStore.shared.searchSessions(query: query)
+            let results = await ChatStore.shared.searchTopLevelSessions(query: query)
             if !Task.isCancelled {
                 searchMatchedIds = Set(results.map(\.session.id))
             }

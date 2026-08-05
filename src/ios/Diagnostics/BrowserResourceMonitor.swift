@@ -191,6 +191,12 @@ final class BrowserResourceMonitor {
 
     // MARK: - Action tracking
 
+    /// Structured counterpart to the diagnostic log's
+    /// `inflight_browser_actions` value. CrashReporter persists this alongside
+    /// the WebView snapshot so a cached idle tab is not mistaken for active
+    /// browser work after an ordinary background process reclamation.
+    var inflightActionCount: Int { inflight.count }
+
     /// Call immediately before dispatching a browser action. Returns a handle to
     /// pass to `actionDidFinish`.
     @discardableResult

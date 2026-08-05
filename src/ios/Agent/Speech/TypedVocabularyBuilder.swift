@@ -114,7 +114,9 @@ actor TypedVocabularyBuilder {
     /// than reinvent.
     static func fetchUserMessages(since: Double) async -> [SourceMessage] {
         var result: [SourceMessage] = []
-        let sessions = await ChatStore.shared.listSessions()
+        // Synthetic delegated-worker prompts are implementation instructions,
+        // not text the user typed, so exclude them from learned vocabulary.
+        let sessions = await ChatStore.shared.listTopLevelSessions()
         for session in sessions {
             let raws = await ChatStore.shared.loadMessages(sessionId: session.id)
             for raw in raws where raw.role == .user {

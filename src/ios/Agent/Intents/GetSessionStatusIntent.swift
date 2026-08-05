@@ -73,12 +73,19 @@ struct GetSessionStatusIntent: AppIntent {
     func perform() async throws -> some IntentResult & ReturnsValue<SessionStatus> {
         let isRunning = SessionActivityTracker.shared.isActive(sessionID)
 
-        let session = await ChatStore.shared.getSession(sessionID)
-        let title = session?.title ?? "Untitled"
-        let updatedAt = session?.updatedAt ?? Date()
+        guard let session = await ChatStore.shared.getSession(sessionID),
+              session.isUserFacingConversation else {
+            throw NSError(
+                domain: "Minis.GetSessionStatus",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "This session is unavailable."]
+            )
+        }
+        let title = session.title ?? "Untitled"
+        let updatedAt = session.updatedAt
 
         // Resolve model name from binding
-        var modelName = session?.modelId ?? "unknown"
+        var modelName = session.modelId
         let store = ProviderConfigStore.shared
         if let binding = store.binding(for: sessionID) {
             switch binding.primarySource {
@@ -111,9 +118,9 @@ struct GetSessionStatusIntent: AppIntent {
                 }
             }
         } else {
-            // VM not cached — fall back to DB
-            let sessions = await ChatStore.shared.listSessions()
-            lastMessage = sessions.first(where: { $0.id == sessionID })?.lastMessage ?? ""
+            // VM not cached — use the already-validated top-level session's
+            // persisted preview rather than re-querying the unfiltered list.
+            lastMessage = session.lastMessage ?? ""
         }
 
         let status = SessionStatus(

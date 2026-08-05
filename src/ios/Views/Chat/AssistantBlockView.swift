@@ -38,8 +38,11 @@ struct AssistantBlockView: View {
                 isStreaming: isActiveMessage && message.blocks.last?.id == block.id
             )
             .padding(.vertical, 2)
-        case .shellTool:
-            ToolCapsuleView(block: block, icon: "terminal", accentColor: .green,
+        case .shellTool(let command):
+            let isDelegation = command == "delegate_task"
+            ToolCapsuleView(block: block,
+                            icon: isDelegation ? "person.2.fill" : "terminal",
+                            accentColor: isDelegation ? .indigo : .green,
                             commandStartTime: commandStartTime, onStop: onStop, browserPool: browserPool,
                             toolSnapshots: toolSnapshots, detailBlock: $detailBlock)
         case .fileReadTool:
@@ -235,7 +238,8 @@ struct ToolCapsuleView: View {
         // Tool name from the block kind.
         let toolName: String
         switch block.kind {
-        case .shellTool:     toolName = "shell_execute"
+        case .shellTool(let command):
+            toolName = command == "delegate_task" ? "delegate_task" : "shell_execute"
         case .fileReadTool:  toolName = "file_read"
         case .fileWriteTool: toolName = "file_write"
         case .fileEditTool:  toolName = "file_edit"

@@ -389,6 +389,61 @@ struct ToolLiveSheet: View {
         return toolBlocks[idx]
     }
 
+    private struct DelegatedTaskInput: Decodable {
+        let task: String?
+        let expectedOutput: String?
+
+        enum CodingKeys: String, CodingKey {
+            case task
+            case expectedOutput = "expected_output"
+        }
+    }
+
+    private struct DelegatedTaskResult: Decodable {
+        let status: String?
+        let workerGroup: String?
+        let modelName: String?
+        let output: String?
+        let error: String?
+
+        enum CodingKeys: String, CodingKey {
+            case status, output, error
+            case workerGroup = "worker_group"
+            case modelName = "model_name"
+        }
+    }
+
+    /// delegate_task intentionally reuses the legacy shell block kind to avoid
+    /// widening the persisted block enum. Detect it by its exact tool name and
+    /// render it as a child task instead of a terminal command.
+    private var isDelegatedWorkerTool: Bool {
+        if case .shellTool(let command) = block.kind {
+            return command == "delegate_task"
+        }
+        return false
+    }
+
+    private var delegatedTaskInput: DelegatedTaskInput? {
+        guard let json = block.toolInputArgs,
+              let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(DelegatedTaskInput.self, from: data)
+    }
+
+    private var delegatedTaskResult: DelegatedTaskResult? {
+        // A persisted ToolSnapshot keeps the complete result. block.content can
+        // be truncated for the model/history budget, so use it only as fallback.
+        let candidates = [currentSnapshot?.snapshot.text, block.content]
+        for candidate in candidates {
+            guard let candidate, !candidate.isEmpty,
+                  let data = candidate.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode(DelegatedTaskResult.self, from: data) else {
+                continue
+            }
+            return decoded
+        }
+        return nil
+    }
+
     private var isLive: Bool {
         guard !toolBlocks.isEmpty else { return false }
         if case .streaming = block.toolStatus { return true }
@@ -507,7 +562,7 @@ struct ToolLiveSheet: View {
     }
 
     private var isCurrentShell: Bool {
-        if case .shellTool = block.kind { return true }
+        if case .shellTool = block.kind { return !isDelegatedWorkerTool }
         return false
     }
 
@@ -637,6 +692,19 @@ struct ToolLiveSheet: View {
                             .background(ChatColors.secondaryBg)
                             .clipShape(Circle())
                     }
+                } else if isDelegatedWorkerTool {
+                    Button {
+                        UIPasteboard.general.string = delegatedTaskResult?.output ?? block.content
+                        navCopyDone = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { navCopyDone = false }
+                    } label: {
+                        Image(systemName: navCopyDone ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 14))
+                            .foregroundStyle(navCopyDone ? Color.green : ChatColors.primaryText)
+                            .frame(width: 32, height: 32)
+                            .background(ChatColors.secondaryBg)
+                            .clipShape(Circle())
+                    }
                 } else {
                     Button { showTerminal = true } label: {
                         toolIcon
@@ -672,7 +740,8 @@ struct ToolLiveSheet: View {
     /// tool kinds fall through to no pre-fill so the terminal just opens on a
     /// fresh prompt.
     private var terminalPrefillCommand: String? {
-        if case .shellTool(let cmd) = block.kind, !cmd.isEmpty {
+        if case .shellTool(let cmd) = block.kind,
+           cmd != "delegate_task", !cmd.isEmpty {
             return cmd
         }
         return nil
@@ -684,7 +753,9 @@ struct ToolLiveSheet: View {
         case .text, .thinking:
             return ""
         case .shellTool(let cmd):
-            return "shell_execute(\(truncateParam(cmd)))"
+            return cmd == "delegate_task"
+                ? "delegate_task"
+                : "shell_execute(\(truncateParam(cmd)))"
         case .fileReadTool(let path):
             return "file_read(\(truncateParam(path)))"
         case .fileWriteTool(let path):
@@ -709,7 +780,8 @@ struct ToolLiveSheet: View {
     @ViewBuilder
     private var toolIcon: some View {
         switch block.kind {
-        case .shellTool: Image(systemName: "terminal")
+        case .shellTool(let command):
+            Image(systemName: command == "delegate_task" ? "person.2.fill" : "terminal")
         case .fileReadTool: Image(systemName: "doc.text")
         case .fileWriteTool: Image(systemName: "doc.text.fill")
         case .fileEditTool: Image(systemName: "square.and.pencil")
@@ -726,7 +798,9 @@ struct ToolLiveSheet: View {
 
     @ViewBuilder
     private var liveContent: some View {
-        if isLive {
+        if isDelegatedWorkerTool {
+            delegatedWorkerContent
+        } else if isLive {
             // Currently executing — show live content
             switch block.kind {
             case .browserTool: browserContent
@@ -777,6 +851,124 @@ struct ToolLiveSheet: View {
                 textContent
             }
         }
+    }
+
+    private var delegatedWorkerStatus: (label: String, color: Color, icon: String) {
+        if let status = delegatedTaskResult?.status?.lowercased() {
+            switch status {
+            case "success":
+                return (String(localized: "Completed"), .green, "checkmark.circle.fill")
+            case "cancelled":
+                return (String(localized: "Cancelled"), .orange, "stop.circle.fill")
+            case "timeout", "error":
+                return (String(localized: "Failed"), .red, "xmark.circle.fill")
+            default:
+                break
+            }
+        }
+        switch block.toolStatus {
+        case .streaming, .running:
+            return (String(localized: "Running"), .indigo, "person.2.fill")
+        case .success:
+            return (String(localized: "Completed"), .green, "checkmark.circle.fill")
+        case .cancelled:
+            return (String(localized: "Cancelled"), .orange, "stop.circle.fill")
+        case .failed:
+            return (String(localized: "Failed"), .red, "xmark.circle.fill")
+        case nil:
+            return (String(localized: "Status"), .secondary, "person.2.fill")
+        }
+    }
+
+    private var delegatedWorkerContent: some View {
+        let status = delegatedWorkerStatus
+        let input = delegatedTaskInput
+        let result = delegatedTaskResult
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Image(systemName: status.icon)
+                        .foregroundStyle(status.color)
+                    Text(status.label)
+                        .font(.system(size: 14, weight: .semibold))
+                    Spacer()
+                    if let group = result?.workerGroup, !group.isEmpty {
+                        Text(group)
+                            .font(.system(size: 12))
+                            .foregroundStyle(ChatColors.secondaryText)
+                            .lineLimit(1)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(status.color.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                if let task = input?.task, !task.isEmpty {
+                    delegatedWorkerCard(title: "Task", text: task, accent: .indigo)
+                }
+
+                if let expected = input?.expectedOutput, !expected.isEmpty {
+                    delegatedWorkerCard(title: "Expected Output", text: expected, accent: .blue)
+                }
+
+                if let model = result?.modelName, !model.isEmpty {
+                    HStack(spacing: 8) {
+                        Text("Model")
+                            .font(.system(size: 13, weight: .semibold))
+                        Spacer()
+                        Text(model)
+                            .font(.system(size: 13))
+                            .foregroundStyle(ChatColors.secondaryText)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                if let output = result?.output, !output.isEmpty {
+                    delegatedWorkerCard(title: "Result", text: output, accent: .green)
+                }
+
+                if let error = result?.error, !error.isEmpty {
+                    delegatedWorkerCard(title: "Error", text: error, accent: .red)
+                } else if result == nil, !isLive, !block.content.isEmpty {
+                    delegatedWorkerCard(title: "Result", text: block.content, accent: .secondary)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func delegatedWorkerCard(
+        title: LocalizedStringKey,
+        text: String,
+        accent: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(accent)
+                    .frame(width: 7, height: 7)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            Text(sanitizeForDisplay(text))
+                .font(.system(size: 13))
+                .foregroundStyle(ChatColors.primaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .padding(14)
+        .background(Color(UIColor.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(accent.opacity(0.20), lineWidth: 0.5)
+        )
     }
 
     /// Render a persisted snapshot (image or text).
@@ -1977,7 +2169,10 @@ struct ToolLiveSheet: View {
 
     private var toolTitle: String {
         switch block.kind {
-        case .shellTool: return "Minis is using Shell"
+        case .shellTool(let command):
+            return command == "delegate_task"
+                ? "Minis is running a subtask"
+                : "Minis is using Shell"
         case .fileReadTool: return "Minis is reading File"
         case .fileWriteTool: return "Minis is using Editor"
         case .fileEditTool: return "Minis is editing File"
@@ -1997,7 +2192,7 @@ struct ToolLiveSheet: View {
 
     private var contentHeader: String {
         switch block.kind {
-        case .shellTool(let cmd): return cmd
+        case .shellTool(let cmd): return cmd == "delegate_task" ? "Delegated task" : cmd
         case .fileReadTool(let p): return (p as NSString).lastPathComponent
         case .fileWriteTool(let p): return (p as NSString).lastPathComponent
         case .fileEditTool(let p): return (p as NSString).lastPathComponent
@@ -2010,7 +2205,7 @@ struct ToolLiveSheet: View {
 
     private var accentColor: Color {
         switch block.kind {
-        case .shellTool: return .green
+        case .shellTool(let command): return command == "delegate_task" ? .indigo : .green
         case .fileReadTool: return .primary
         case .fileWriteTool: return .blue
         case .fileEditTool: return .orange
@@ -2324,7 +2519,9 @@ private struct ToolPreviewThumbnail: View {
 
     private var previewHeader: String {
         switch block.kind {
-        case .shellTool(let cmd): return cmd.isEmpty ? "$ shell" : "$ \(cmd)"
+        case .shellTool(let cmd):
+            if cmd == "delegate_task" { return String(localized: "Delegated task") }
+            return cmd.isEmpty ? "$ shell" : "$ \(cmd)"
         case .fileReadTool(let p):
             let name = (p as NSString).lastPathComponent
             return (!p.isEmpty && name != "/" && name.contains(".")) ? name : String(localized: "Read file")
@@ -2344,13 +2541,15 @@ private struct ToolPreviewThumbnail: View {
     }
 
     private var isShell: Bool {
-        if case .shellTool = block.kind { return true }
+        if case .shellTool(let command) = block.kind {
+            return command != "delegate_task"
+        }
         return false
     }
 
     private var accentColor: Color {
         switch block.kind {
-        case .shellTool: return .green
+        case .shellTool(let command): return command == "delegate_task" ? .indigo : .green
         case .fileReadTool: return .cyan
         case .fileWriteTool: return .blue
         case .fileEditTool: return .orange

@@ -104,7 +104,7 @@ extension AIChatViewModel {
         // session the user already read. Gate on the assistant-turn count
         // actually having grown since we last badged, so only a run that truly
         // produced a new assistant completion re-marks unread.
-        if let sid = sessionId, !sid.isEmpty {
+        if !isDelegatedWorkerSession, let sid = sessionId, !sid.isEmpty {
             let assistantTurns = agentHistory.reduce(0) { $0 + ($1.role == .assistant ? 1 : 0) }
             let hasNewCompletion = assistantTurns > lastBadgedAssistantTurnCount
             if Self.activeSessionId == sid {
@@ -130,6 +130,19 @@ extension AIChatViewModel {
             ? "already-ended"
             : String(backgroundTaskID.rawValue)
         logger.info("[BKA][BGTask] Completing assertion=\(assertionDescription) remaining=\(remainingStr) sessions=\(SessionActivityTracker.shared.activeSessions.count) silentAudio=\(BackgroundKeepAliveManager.shared.silentAudioIsPlaying)")
+
+        // Worker completions are represented by the delegate_task card in the
+        // parent conversation. Do not create a second unread badge, local
+        // notification, or completion Live Activity for the hidden session.
+        if isDelegatedWorkerSession {
+            let workerBackgroundTaskID = backgroundTaskID
+            backgroundTaskID = .invalid
+            if workerBackgroundTaskID != .invalid {
+                UIApplication.shared.endBackgroundTask(workerBackgroundTaskID)
+            }
+            logger.info("[BackgroundNotification] suppressed delegated worker session=\(sessionId?.prefix(8) ?? "nil")")
+            return
+        }
 
         // Post local notification if task completed in background.
         // Await Live Activity "completed" state update BEFORE posting the

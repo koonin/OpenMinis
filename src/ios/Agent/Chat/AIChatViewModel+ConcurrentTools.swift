@@ -260,11 +260,13 @@ extension AIChatViewModel {
         workerVM.sessionSource = Self.delegatedWorkerSessionSource
         workerVM.initialGroupId = group.id
         workerVM.selectedModel = entry.model
+        workerVM.browserTabPool.perActionDeadTimeout =
+            BrowserTabPool.delegatedWorkerActionDeadTimeout(totalTimeoutSeconds: timeoutSeconds)
 
         let workerSessionId = await workerVM.ensureSessionReturningId(makeActive: false)
 
         if Task.isCancelled {
-            workerVM.cancel()
+            workerVM.cancel(userInitiated: false)
             SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
             return DelegatedWorkerRunResult(
                 status: "cancelled", sessionId: workerSessionId,
@@ -274,7 +276,7 @@ extension AIChatViewModel {
             )
         }
         guard Date() < deadline else {
-            workerVM.cancel()
+            workerVM.cancel(userInitiated: false)
             SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
             return DelegatedWorkerRunResult(
                 status: "timeout", sessionId: workerSessionId,
@@ -329,7 +331,7 @@ extension AIChatViewModel {
         // Cancellation can arrive during any of the async persistence calls
         // above. It must be observed before the paid provider request starts.
         if Task.isCancelled || userDidCancel {
-            workerVM.cancel()
+            workerVM.cancel(userInitiated: false)
             SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
             return DelegatedWorkerRunResult(
                 status: "cancelled", sessionId: workerSessionId,
@@ -339,7 +341,7 @@ extension AIChatViewModel {
             )
         }
         guard Date() < deadline else {
-            workerVM.cancel()
+            workerVM.cancel(userInitiated: false)
             SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
             return DelegatedWorkerRunResult(
                 status: "timeout", sessionId: workerSessionId,
@@ -355,7 +357,7 @@ extension AIChatViewModel {
             while workerVM.isProcessing {
                 try Task.checkCancellation()
                 if Date() >= deadline {
-                    workerVM.cancel()
+                    workerVM.cancel(userInitiated: false)
                     SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
                     return DelegatedWorkerRunResult(
                         status: "timeout", sessionId: workerSessionId,
@@ -370,7 +372,7 @@ extension AIChatViewModel {
             }
             try Task.checkCancellation()
         } catch is CancellationError {
-            workerVM.cancel()
+            workerVM.cancel(userInitiated: false)
             SessionConcurrencyManager.shared.cancelWait(sessionId: workerSessionId)
             return DelegatedWorkerRunResult(
                 status: "cancelled", sessionId: workerSessionId,

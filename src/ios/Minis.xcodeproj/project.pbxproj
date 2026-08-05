@@ -155,6 +155,10 @@
 		E5CR00001 /* ShellCommandRingBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CR00011 /* ShellCommandRingBuffer.swift */; };
 		E5CR00002 /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CR00012 /* CrashReporter.swift */; };
 		E5CR00003 /* CrashSignalHandler.m in Sources */ = {isa = PBXBuildFile; fileRef = E5CR00013 /* CrashSignalHandler.m */; };
+		E5DSP0001 /* DelegatedSessionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5DSP0011 /* DelegatedSessionPolicy.swift */; };
+		E5DSP0002 /* DelegatedSessionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5DSP0011 /* DelegatedSessionPolicy.swift */; };
+		E5SMC0001 /* StaleMarkerClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SMC0011 /* StaleMarkerClassifier.swift */; };
+		E5SMC0002 /* StaleMarkerClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5SMC0011 /* StaleMarkerClassifier.swift */; };
 		E5D00001 /* ProviderTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D00011 /* ProviderTypes.swift */; };
 		E5D00002 /* ProviderInstance.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D00012 /* ProviderInstance.swift */; };
 		E5D00003 /* ModelEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D00013 /* ModelEntry.swift */; };
@@ -746,6 +750,8 @@
 		E5CR00012 /* CrashReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporter.swift; sourceTree = "<group>"; };
 		E5CR00013 /* CrashSignalHandler.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CrashSignalHandler.m; sourceTree = "<group>"; };
 		E5CR00014 /* CrashSignalHandler.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CrashSignalHandler.h; sourceTree = "<group>"; };
+		E5DSP0011 /* DelegatedSessionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelegatedSessionPolicy.swift; sourceTree = "<group>"; };
+		E5SMC0011 /* StaleMarkerClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaleMarkerClassifier.swift; sourceTree = "<group>"; };
 		E5D00011 /* ProviderTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderTypes.swift; sourceTree = "<group>"; };
 		E5D00012 /* ProviderInstance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderInstance.swift; sourceTree = "<group>"; };
 		E5D00013 /* ModelEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelEntry.swift; sourceTree = "<group>"; };
@@ -1540,6 +1546,7 @@
 			children = (
 				E5BRM0011 /* BrowserResourceMonitor.swift */,
 				E5CR00012 /* CrashReporter.swift */,
+				E5SMC0011 /* StaleMarkerClassifier.swift */,
 				E5CR00014 /* CrashSignalHandler.h */,
 				E5CR00013 /* CrashSignalHandler.m */,
 			);
@@ -1858,6 +1865,7 @@
 				E5VMC0015 /* AIChatViewModel+Persistence.swift */,
 				E5VMC0016 /* AIChatViewModel+BackgroundTask.swift */,
 				E5VMC0017 /* AIChatViewModel+ConcurrentTools.swift */,
+				E5DSP0011 /* DelegatedSessionPolicy.swift */,
 				E53000014 /* ChatStore.swift */,
 				BB1000110F700000000000AA /* ContextPolicy.swift */,
 				E5FMI0011 /* FileMentionIndex.swift */,
@@ -2430,6 +2438,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E5DSP0002 /* DelegatedSessionPolicy.swift in Sources */,
+				E5SMC0002 /* StaleMarkerClassifier.swift in Sources */,
 				BB1000120F700000000000AA /* ContextPolicy.swift in Sources */,
 				E5STG0002 /* ScheduledTaskSetupGuide.swift in Sources */,
 				E5LD00002 /* ToolLoopDetector.swift in Sources */,
@@ -2544,6 +2554,7 @@
 				E5VMC0005 /* AIChatViewModel+Persistence.swift in Sources */,
 				E5VMC0006 /* AIChatViewModel+BackgroundTask.swift in Sources */,
 				E5VMC0007 /* AIChatViewModel+ConcurrentTools.swift in Sources */,
+				E5DSP0001 /* DelegatedSessionPolicy.swift in Sources */,
 				E5LD00001 /* ToolLoopDetector.swift in Sources */,
 				E53000002 /* AIChatView.swift in Sources */,
 				E5CAL0001 /* CookieAuditLogger.swift in Sources */,
@@ -2599,6 +2610,7 @@
 				E5CR00001 /* ShellCommandRingBuffer.swift in Sources */,
 				E5BRM0001 /* BrowserResourceMonitor.swift in Sources */,
 				E5CR00002 /* CrashReporter.swift in Sources */,
+				E5SMC0001 /* StaleMarkerClassifier.swift in Sources */,
 				E5CR00003 /* CrashSignalHandler.m in Sources */,
 				E5KVC0003 /* SafeKVCSetTrue.m in Sources */,
 				E5F100001 /* NetworkMonitor.swift in Sources */,

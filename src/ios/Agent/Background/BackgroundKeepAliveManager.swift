@@ -476,8 +476,12 @@ final class BackgroundKeepAliveManager: NSObject, ObservableObject, CLLocationMa
             $backgroundNotificationsEnabled
         )
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] sessions, enabled in
-            self?.refreshActiveTaskBadge(sessions: sessions, enabled: enabled)
+        .sink { [weak self] _, enabled in
+            guard let self else { return }
+            self.refreshActiveTaskBadge(
+                sessions: SessionActivityTracker.shared.userFacingActiveSessions,
+                enabled: enabled
+            )
         }
         .store(in: &cancellables)
 
@@ -765,7 +769,7 @@ final class BackgroundKeepAliveManager: NSObject, ObservableObject, CLLocationMa
     /// clear the badge separately in `MinisApp.handleScenePhaseChange`.
     func refreshActiveTaskBadge() {
         refreshActiveTaskBadge(
-            sessions: SessionActivityTracker.shared.activeSessions,
+            sessions: SessionActivityTracker.shared.userFacingActiveSessions,
             enabled: backgroundNotificationsEnabled
         )
     }
@@ -1431,7 +1435,7 @@ final class BackgroundKeepAliveManager: NSObject, ObservableObject, CLLocationMa
             }
             return
         }
-        let sessions = SessionActivityTracker.shared.activeSessions
+        let sessions = SessionActivityTracker.shared.userFacingActiveSessions
         let count = sessions.count
         let idList = sessions.map { $0.prefix(8) }.joined(separator: ",")
         let appState: String = {
@@ -1459,7 +1463,7 @@ final class BackgroundKeepAliveManager: NSObject, ObservableObject, CLLocationMa
     private func buildSessionSnapshots() -> [LiveSessionSnapshot] {
         guard #available(iOS 16.2, *) else { return [] }
         let tracker = SessionActivityTracker.shared
-        return tracker.activeSessions.sorted().map { sid in
+        return tracker.userFacingActiveSessions.sorted().map { sid in
             let info = tracker.sessionToolInfo[sid]
             let title = info?.title ?? ""
             let toolName = info?.toolName ?? ""

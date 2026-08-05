@@ -588,7 +588,7 @@ struct ContentView: View {
             }
         }
         .task {
-            sessions = await ChatStore.shared.listSessions()
+            sessions = await ChatStore.shared.listTopLevelSessions()
             let shareAlreadyHandled = shareCoordinator.bufferVersion > 0
             // A Home Screen Quick Action that fired during launch will
             // open the right session itself via `quickActionRouter.newChatTrigger`.
@@ -977,7 +977,9 @@ struct ContentView: View {
 
     // MARK: - Display Sessions
 
-    /// Sessions filtered by active search query, or all sessions if not searching.
+    /// Sessions filtered by active search query, or all top-level sessions if
+    /// not searching. `sessions` is already the stable user-facing projection
+    /// from ChatStore, so the normal SwiftUI body path allocates no new array.
     private var filteredSessions: [ChatSession] {
         guard let matchedIds = searchMatchedIds else { return sessions }
         return sessions.filter { matchedIds.contains($0.id) }
@@ -2226,7 +2228,7 @@ struct ContentView: View {
         searchTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000) // 300ms debounce
             guard !Task.isCancelled else { return }
-            let results = await ChatStore.shared.searchSessions(query: query)
+            let results = await ChatStore.shared.searchTopLevelSessions(query: query)
             if !Task.isCancelled {
                 searchMatchedIds = Set(results.map(\.session.id))
                 // Build a sessionId → snippet map for body-only matches
@@ -2295,7 +2297,7 @@ struct ContentView: View {
         }
         sessionRefreshInFlight = true
         Task(priority: .utility) { @MainActor in
-            sessions = await ChatStore.shared.listSessions()
+            sessions = await ChatStore.shared.listTopLevelSessions()
             sessionRefreshInFlight = false
             if sessionRefreshPending {
                 sessionRefreshPending = false

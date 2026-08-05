@@ -1822,6 +1822,29 @@ final class BrowserUseManager: NSObject, ObservableObject {
         isLoading = false
     }
 
+    /// Permanently detach a manager that has been removed from its pool. This
+    /// is stronger than stopLoading(): a wedged WebContent process may ignore
+    /// that request, so callbacks and continuations are severed explicitly and
+    /// the pool will never reuse this WKWebView.
+    func invalidateForPoolRemoval() {
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.stopLoading()
+        webView.endEditing(true)
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: Self.printMessageHandlerName
+        )
+        newWindowHandler = nil
+        closeHandler = nil
+        sessionIdProvider = nil
+        tabIdProvider = nil
+        isLoading = false
+        if let continuation = navigationContinuation {
+            navigationContinuation = nil
+            continuation.resume(throwing: CancellationError())
+        }
+    }
+
     func loadURL(_ urlString: String) {
         var normalized = urlString
         if !normalized.contains("://") {

@@ -31,7 +31,8 @@ struct SessionEntityQuery: EntityQuery {
     func entities(for identifiers: [String]) async throws -> [SessionEntity] {
         var results: [SessionEntity] = []
         for id in identifiers {
-            if let session = await ChatStore.shared.getSession(id) {
+            if let session = await ChatStore.shared.getSession(id),
+               session.isUserFacingConversation {
                 results.append(SessionEntity(from: session))
             }
         }
@@ -39,7 +40,7 @@ struct SessionEntityQuery: EntityQuery {
     }
 
     func suggestedEntities() async throws -> [SessionEntity] {
-        let sessions = await ChatStore.shared.listSessions()
+        let sessions = await ChatStore.shared.listTopLevelSessions()
         return sessions.prefix(100).map { SessionEntity(from: $0) }
     }
 }

@@ -18,6 +18,9 @@ final class SessionActivityTracker: ObservableObject {
     /// "processing ends → entry clears" invariant that Live Activity relies
     /// on.
     @Published var activeSessions: Set<String> = []
+    /// Active implementation-detail sessions that participate in runtime
+    /// accounting/keep-alive but must not become separate Live Activity cards.
+    private var internalSessions: Set<String> = []
     /// Maps a sidebar draft ID to its real session ID after ensureSession
     /// migrates from draft→real. Allows sidebar proxy rows that still
     /// identify themselves by draftId (ContentView's `displaySessions`) to
@@ -43,7 +46,7 @@ final class SessionActivityTracker: ObservableObject {
     /// Dynamic Island minimal icon's "latest tool" frame. Nil when no active
     /// session has a tool yet.
     func latestToolName() -> String? {
-        let active = activeSessions
+        let active = activeSessions.subtracting(internalSessions)
         return sessionToolInfo
             .filter { active.contains($0.key) && !$0.value.toolName.isEmpty }
             .max { $0.value.lastToolChange < $1.value.lastToolChange }?
@@ -131,8 +134,20 @@ final class SessionActivityTracker: ObservableObject {
         Self.mirrorLock.unlock()
     }
 
-    func setActive(_ sessionId: String, source: String = #function) {
+    func setActive(
+        _ sessionId: String,
+        source: String = #function,
+        isUserFacing: Bool = true
+    ) {
         let wasPresent = activeSessions.contains(sessionId)
+        if isUserFacing {
+            internalSessions.remove(sessionId)
+        } else {
+            internalSessions.insert(sessionId)
+        }
+        // Classify first, then publish the active-set mutation. Subscribers that
+        // derive a user-facing count must never observe a worker as a transient
+        // top-level task.
         activeSessions.insert(sessionId)
         syncMirror()
         logger.info("🟢[Tracker] setActive(\(sessionId.prefix(8))) src=\(source) wasPresent=\(wasPresent) now count=\(activeSessions.count) ids=[\(activeSessions.map { $0.prefix(8) }.joined(separator: ","))]")
@@ -141,6 +156,7 @@ final class SessionActivityTracker: ObservableObject {
     func setInactive(_ sessionId: String, source: String = #function) {
         let wasPresent = activeSessions.contains(sessionId)
         activeSessions.remove(sessionId)
+        internalSessions.remove(sessionId)
         sessionToolInfo.removeValue(forKey: sessionId)
         // Drop any alias pointing at this session — if the real session is
         // no longer active, its draft alias should not linger either.
@@ -166,6 +182,12 @@ final class SessionActivityTracker: ObservableObject {
         if let realId = draftAliases[sessionId],
            activeSessions.contains(realId) { return true }
         return false
+    }
+
+    /// Sessions suitable for user-facing runtime surfaces. Runtime/BKA code
+    /// should continue using `activeSessions` so hidden workers still count.
+    var userFacingActiveSessions: Set<String> {
+        activeSessions.subtracting(internalSessions)
     }
 }
 
