@@ -93,10 +93,18 @@ struct ModelGroupsView: View {
                         ),
                         voiceDirection: .output
                     )
+                    GroupSlotPicker(
+                        label: "Vision Input",
+                        selection: Binding(
+                            get: { store.visionGroupId },
+                            set: { store.visionGroupId = $0 }
+                        ),
+                        isVision: true
+                    )
                 } header: {
                     Text("Defaults")
                 } footer: {
-                    Text("Primary is used for main agent tasks. Sub is used for lightweight tasks like title generation. Worker Group runs explicit read-only tasks delegated by the main agent, with up to three workers at once. Voice Input/Output pick a group whose audio-capable models drive speech-to-text and text-to-speech; if none is set, the offline System voice is used.")
+                    Text("Primary is used for main agent tasks. Sub is used for lightweight tasks like title generation. Worker Group runs explicit read-only tasks delegated by the main agent, with up to three workers at once. Voice Input/Output pick a group whose audio-capable models drive speech-to-text and text-to-speech; if none is set, the offline System voice is used. Vision Input picks a group whose image-capable models describe images when the chat model cannot see them itself; if none is set, models without vision cannot read images at all.")
                 }
             }
 
