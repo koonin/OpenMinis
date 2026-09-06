@@ -39,6 +39,7 @@ final class AudioSessionCoordinator {
 
     enum Intent: Int {
         // Higher rawValue = higher priority.
+        case backupKeepAlive = -1
         case backgroundKeepAlive = 0
         case replyTTS = 1
         case mediaAttachment = 2
@@ -246,7 +247,7 @@ final class AudioSessionCoordinator {
             return (.playback, .spokenAudio, [.duckOthers])
         case .applicationMusic:
             return (.playback, .default, [])
-        case .backgroundKeepAlive:
+        case .backgroundKeepAlive, .backupKeepAlive:
             return (.playback, .default, [.mixWithOthers])
         }
     }
