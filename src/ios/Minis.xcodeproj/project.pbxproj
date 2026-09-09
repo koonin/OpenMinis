@@ -158,6 +158,8 @@
 		E5C000001 /* OpenAIProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C000011 /* OpenAIProvider.swift */; };
 		E5C000002 /* OpenAIAgentProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C000012 /* OpenAIAgentProvider.swift */; };
 		E5C000003 /* OpenAIModelsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C000013 /* OpenAIModelsAPI.swift */; };
+		A6A570000000000000000001 /* GPT6AstraSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6A570000000000000000002 /* GPT6AstraSupport.swift */; };
+		A12525000000000000000001 /* GPTImage25Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12525000000000000000002 /* GPTImage25Support.swift */; };
 		E5C000004 /* CodexOAuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C000014 /* CodexOAuthManager.swift */; };
 		E5CADM01 /* CorrectionAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CADM03 /* CorrectionAdmission.swift */; };
 		E5CADM02 /* CorrectionAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5CADM03 /* CorrectionAdmission.swift */; };
@@ -819,6 +821,8 @@
 		E5C000011 /* OpenAIProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIProvider.swift; sourceTree = "<group>"; };
 		E5C000012 /* OpenAIAgentProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIAgentProvider.swift; sourceTree = "<group>"; };
 		E5C000013 /* OpenAIModelsAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAIModelsAPI.swift; sourceTree = "<group>"; };
+		A6A570000000000000000002 /* GPT6AstraSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPT6AstraSupport.swift; sourceTree = "<group>"; };
+		A12525000000000000000002 /* GPTImage25Support.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPTImage25Support.swift; sourceTree = "<group>"; };
 		E5C000014 /* CodexOAuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexOAuthManager.swift; sourceTree = "<group>"; };
 		E5CADM03 /* CorrectionAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CorrectionAdmission.swift; sourceTree = "<group>"; };
 		E5CAL0002 /* CookieAuditLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookieAuditLogger.swift; sourceTree = "<group>"; };
@@ -1705,6 +1709,8 @@
 				E5C000011 /* OpenAIProvider.swift */,
 				E5C000012 /* OpenAIAgentProvider.swift */,
 				E5C000013 /* OpenAIModelsAPI.swift */,
+				A6A570000000000000000002 /* GPT6AstraSupport.swift */,
+				A12525000000000000000002 /* GPTImage25Support.swift */,
 				E5C000031 /* OAuth */,
 			);
 			path = OpenAI;
@@ -2916,6 +2922,8 @@
 				E5C000001 /* OpenAIProvider.swift in Sources */,
 				E5C000002 /* OpenAIAgentProvider.swift in Sources */,
 				E5C000003 /* OpenAIModelsAPI.swift in Sources */,
+				A6A570000000000000000001 /* GPT6AstraSupport.swift in Sources */,
+				A12525000000000000000001 /* GPTImage25Support.swift in Sources */,
 				E5C000004 /* CodexOAuthManager.swift in Sources */,
 				EXA000001 /* xAIModelsAPI.swift in Sources */,
 				EXA000002 /* XAITokenStorage.swift in Sources */,

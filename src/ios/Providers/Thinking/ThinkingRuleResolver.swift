@@ -272,6 +272,8 @@ enum ThinkingRuleResolver {
                                   wireFormat: .reasoningEffort(offValue: ctx.offEffort), label: "openai-native"))
         rules.append(ThinkingRule(kind: .officialVendor, scope: .modelPattern("gpt-5*"),
                                   wireFormat: .reasoningEffort(offValue: ctx.offEffort), label: "openai-native"))
+        rules.append(ThinkingRule(kind: .officialVendor, scope: .modelPattern("gpt-6-astra"),
+                                  wireFormat: .reasoningEffort(offValue: "low"), label: "openai-native"))
         rules.append(ThinkingRule(kind: .officialVendor, scope: .modelPattern("gpt-4*"),
                                   wireFormat: .reasoningEffort(offValue: ctx.offEffort), label: "openai-native"))
 
@@ -504,7 +506,7 @@ enum ThinkingRuleResolver {
             //    NOT clamped onto the declared set.
             //  • everything else goes through the generic fallback, which IS clamped.
             let isOpenAINative = lid.hasPrefix("o1") || lid.hasPrefix("o3") || lid.hasPrefix("o4")
-                || lid.hasPrefix("gpt-5") || lid.hasPrefix("gpt-4")
+                || lid.hasPrefix("gpt-5") || lid.hasPrefix("gpt-4") || GPT6AstraSupport.matches(lid)
             if isOpenAINative {
                 if let effort = OpenAIAgentProvider.reasoningEffort(for: modelShim(ctx), level: ctx.level) {
                     body["reasoning_effort"] = effort

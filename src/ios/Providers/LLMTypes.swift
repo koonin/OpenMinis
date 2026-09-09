@@ -114,12 +114,15 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
         self.id = id
         self.displayName = displayName
         self.provider = provider
+        let isAstra = GPT6AstraSupport.matches(id)
         self.modalityOverride = modalityOverride
-        self.contextWindow = contextWindow
-        self.maxOutputTokens = maxOutputTokens
-        self.supportsReasoning = supportsReasoning
+            ?? (GPTImage25Support.matches(id) ? [.textInput, .imageInput, .imageOutput] : nil)
+            ?? (isAstra ? [.textInput, .imageInput, .textOutput] : nil)
+        self.contextWindow = contextWindow ?? (isAstra ? GPT6AstraSupport.contextWindow : nil)
+        self.maxOutputTokens = maxOutputTokens ?? (isAstra ? GPT6AstraSupport.maxOutputTokens : nil)
+        self.supportsReasoning = supportsReasoning ?? (isAstra ? true : nil)
         self.interleavedReasoningField = interleavedReasoningField
-        self.reasoningEffortValues = reasoningEffortValues
+        self.reasoningEffortValues = reasoningEffortValues ?? (isAstra ? GPT6AstraSupport.effortValues : nil)
         self.declaresNoEffortTiers = declaresNoEffortTiers
     }
 
@@ -253,6 +256,12 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
     ]
 
     // MARK: - OpenAI Models
+
+    static let gpt6Astra = LLMModel(
+        id: GPT6AstraSupport.modelID,
+        displayName: "GPT-6 Astra",
+        provider: "OpenAI"
+    )
 
     static let gpt56Sol = LLMModel(
         id: "gpt-5.6-sol",
@@ -409,14 +418,25 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
         modalityOverride: [.textInput, .imageInput, .imageOutput]
     )
 
+    static let gptImage25Sunburst = LLMModel(
+        id: GPTImage25Support.sunburst, displayName: "GPT Image 2.5 Sunburst", provider: "OpenAI"
+    )
+
+    static let gptImage25Flare = LLMModel(
+        id: GPTImage25Support.flare, displayName: "GPT Image 2.5 Flare", provider: "OpenAI"
+    )
+
     static let allOpenAI: [LLMModel] = [
         .gpt54, .gpt52, .gpt5, .gpt41,
         .gpt4o, .gpt4oMini,
         .o3, .o4Mini,
         .codexMini,
+        .gptImage25Sunburst, .gptImage25Flare,
     ]
 
-    /// Models available via Codex OAuth (ChatGPT subscription).
+    /// Built-in candidates for Codex OAuth (ChatGPT subscription), not an
+    /// account-specific availability response. GPT-6 Astra is newly cataloged;
+    /// access must be checked with the configured account before relying on it.
     ///
     /// [T-codex-oauth-model-prune] The Codex backend rejects a model the
     /// ChatGPT tier does not carry with
@@ -434,11 +454,14 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
     /// carry more. Re-probe before adding anything back; do not restore an id
     /// from documentation alone.
     static let allOpenAICodexOAuth: [LLMModel] = [
+        .gpt6Astra,
         .gpt56Sol, .gpt56Terra, .gpt56Luna,
         .gpt55, .gpt54, .gpt54Mini,
         // gptImage2 is kept: it is an image endpoint, not a Codex chat model,
         // so the text-model probe above does not apply to it.
         .gptImage2,
+        // Explicit tool selectors; candidates, not verified Codex account access.
+        .gptImage25Sunburst, .gptImage25Flare,
     ]
 
     // MARK: - OpenRouter Models
@@ -555,6 +578,12 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
     func withInferredModality() -> LLMModel {
         // First: enrich from models.dev (fills modality, contextWindow, maxOutputTokens if available)
         var enriched = ModelsDevAPI.enrichModel(self)
+
+        // Repair older cached/manual entries with no modality metadata. Explicit
+        // user overrides remain authoritative, including on compatible relays.
+        if enriched.modalityOverride == nil, GPTImage25Support.matches(id) {
+            enriched.modalityOverride = [.textInput, .imageInput, .imageOutput]
+        }
 
         // If models.dev already set the modality, we're done
         if enriched.modalityOverride != nil { return enriched }

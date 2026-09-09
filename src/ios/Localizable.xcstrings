@@ -1,6 +1,14 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "This is a built-in model list, not an account access check. Test a model before using it; GPT-6 Astra always uses at least low reasoning effort." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This is a built-in model list, not an account access check. Test a model before using it; GPT-6 Astra always uses at least low reasoning effort." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "这是内置模型名单，尚未验证账号权限。请先测试模型是否可用；GPT-6 Astra 无法完全关闭思考，最低使用低档。" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "這是內建模型清單，尚未驗證帳號權限。請先測試模型是否可用；GPT-6 Astra 無法完全關閉思考，最低使用低檔。" } }
+      }
+    },
     "" : {
 
     },

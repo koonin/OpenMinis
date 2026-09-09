@@ -134,6 +134,8 @@ static NSString *const HELP_TEXT =
      "    n         integer, number of images (default 1)\n"
      "    size      \"1024x1024\" | \"1792x1024\" | \"1024x1792\" | etc.\n"
      "    quality   \"standard\" | \"hd\"\n"
+     "  GPT Image 2.5 (Sunburst / Flare): quality is auto | low | medium | high | xhigh | max.\n"
+     "    Use e.g. size=1536x1024, quality=high. Codex OAuth returns one image per call.\n"
      "\n"
      "  Gemini-style (Imagen / gemini-2.5-flash-image etc.) — generation_config:\n"
      "    aspect_ratio       \"1:1\" | \"16:9\" | \"9:16\" | \"4:3\" | \"3:4\"\n"

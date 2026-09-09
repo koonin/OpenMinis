@@ -298,16 +298,20 @@ private let logger = AppLogger(category: "ModelUseOffload")
         case .unsupported:
             return ""
         case .openAI, .openAIResponses, .openRouter, .xAI, .kimiCode:
+            let isImage25 = GPTImage25Support.matches(entry.model.id)
+            let qualityHint = isImage25 ? "\"auto\" | \"low\" | \"medium\" | \"high\" | \"xhigh\" | \"max\"" : "\"standard\" | \"hd\""
+            let exampleSize = isImage25 ? "1536x1024" : "1792x1024"
+            let exampleQuality = isImage25 ? "high" : "hd"
             return """
             Hint — \(entry.model.displayName) is an OpenAI-compatible image model. Use the same \
             messages format as text models: put the prompt in the user message and image params \
             under `generation_config`:
               n         integer, number of images (default 1)
               size      "1024x1024" | "1792x1024" | "1024x1792" | etc.
-              quality   "standard" | "hd"
+              quality   \(qualityHint)
             Example:
               {"messages":[{"role":"user","content":"<prompt>"}],
-               "generation_config":{"size":"1792x1024","quality":"hd","n":1}}
+               "generation_config":{"size":"\(exampleSize)","quality":"\(exampleQuality)","n":1}}
 
             Passthrough (topics: image-to-image, extra_body, extra_headers, endpoint_path) — \
             any field our schema doesn't model is forwarded VERBATIM into the \
@@ -555,7 +559,7 @@ private let logger = AppLogger(category: "ModelUseOffload")
             let cliEndpointPreview = Self.parseEndpointOverride(inputJSON)?.rawValue ?? "<none>"
             logger.info("[ModelUseRoute] DECISION-INPUTS model=\(entry.model.id) modalities=[\(modalityList.joined(separator: ","))] instance=\(instance?.label ?? "<nil>") instanceCred=\(instance?.credentialType.rawValue ?? "<nil>") image_endpoint_mode=\(endpointModeStr) image_endpoint_resolved=\(endpointResolvedStr) cliEndpointOverride=\(cliEndpointPreview) providerIsOAuth=\(openAI.isOAuth) codexAccountIdPresent=\(openAI.codexAccountId != nil) customBaseURL=\(openAI.customBaseURL ?? "<nil>") forceResponsesAPI=\(openAI.forceResponsesAPI)")
 
-            // Codex OAuth image generation — STRICTLY scoped to the gpt-image-2
+            // Codex OAuth image generation — scoped to known GPT image
             // model so this is a pure additive branch with zero regression on
             // normal OpenAI OAuth chat/responses flows (those models lack
             // .imageOutput and never reach this block anyway; the explicit
@@ -573,17 +577,14 @@ private let logger = AppLogger(category: "ModelUseOffload")
             // back to the (wrong) Images API path. Codex backend tolerates a
             // missing Chatgpt-Account-Id header, so any OAuth instance is
             // routed to codex for this model.
-            let isCodexImage = entry.model.id == LLMModel.gptImage2.id
-                && openAI.isOAuth
-                && openAI.customBaseURL == nil
-                && !openAI.forceResponsesAPI
-            if isCodexImage {
+            if openAI.usesCodexImageGeneration {
                 let topModel = await Self.resolveCodexTopLevelModel(
                     forInstance: entry.providerInstanceId, inputJSON: inputJSON)
-                // size/quality/n aren't supported by the codex image_generation
-                // shape (auto only) — log that we're ignoring them.
-                if imgConfig.size != nil || imgConfig.quality != nil || imgConfig.n != 1 {
-                    logger.info("🖼️ codex image_generation ignores size/quality/n (backend is auto-only): size=\(imgConfig.size ?? "nil") quality=\(imgConfig.quality ?? "nil") n=\(imgConfig.n)")
+                if !GPTImage25Support.matches(entry.model.id), imgConfig.size != nil || imgConfig.quality != nil {
+                    logger.info("🖼️ Legacy codex Image 2 ignores size/quality")
+                }
+                if imgConfig.n != 1 {
+                    callWarnings.append("Codex image generation returns one image per call; n=\(imgConfig.n) is not supported.")
                 }
                 logger.info("🖼️ image_endpoint=codex_responses model=\(entry.model.id) topLevel=\(topModel ?? "nil") inputImages=\(inputImages.count)")
                 logger.info("[ModelUseRoute] route=codex-oauth-image method=POST url=https://chatgpt.com/backend-api/codex/responses model=\(entry.model.id) topLevelModel=\(topModel ?? "<nil>")")
@@ -1552,7 +1553,7 @@ private let logger = AppLogger(category: "ModelUseOffload")
     ///   2. Highest-version `gpt-*` (non-image) model on the instance.
     ///   3. Fallback "gpt-5.5".
     @MainActor
-    private static func resolveCodexTopLevelModel(forInstance instanceId: String,
+    static func resolveCodexTopLevelModel(forInstance instanceId: String,
                                                   inputJSON: String) -> String? {
         if let data = inputJSON.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {

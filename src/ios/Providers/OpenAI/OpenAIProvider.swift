@@ -88,7 +88,17 @@ private func makeStreamingSession() -> URLSession {
 ///   - API Key: Standard Chat Completions API at api.openai.com
 ///   - OAuth (Codex): Responses API at chatgpt.com/backend-api/codex/responses
 final class OpenAIProvider: LLMProvider {
-    static let codexClientVersion = "0.144.1"
+    // Compatibility baseline for the Codex OAuth protocol adapter. Keep both
+    // request paths in sync; 0.144.1 is rejected for GPT-6 Astra as outdated.
+    // Official Astra-aware release: https://learn.chatgpt.com/docs/changelog
+    static let codexClientVersion = "0.153.4"
+
+    static func applyCodexClientHeaders(to request: inout URLRequest) {
+        request.setValue(codexClientVersion, forHTTPHeaderField: "Version")
+        request.setValue("responses=experimental", forHTTPHeaderField: "Openai-Beta")
+        request.setValue("codex_cli_rs/\(codexClientVersion) (iOS; arm64)", forHTTPHeaderField: "User-Agent")
+        request.setValue("codex_cli_rs", forHTTPHeaderField: "Originator")
+    }
 
     /// [T-codex-fast-mode] UserDefaults key for the Codex Fast Mode toggle.
     /// Read at request-build time (not cached at init) so flipping the "..."
@@ -795,6 +805,8 @@ final class OpenAIProvider: LLMProvider {
         body: [String: Any],
         isResponsesAPI: Bool
     ) async throws -> (AsyncThrowingStream<String, Error>, Int) {
+        var body = body
+        GPT6AstraSupport.prepare(&body, modelID: model.id, responses: isResponsesAPI)
         let url: URL
         var request: URLRequest
 
@@ -805,10 +817,7 @@ final class OpenAIProvider: LLMProvider {
             request = URLRequest(url: url)
             let token = try await getToken()
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            request.setValue(Self.codexClientVersion, forHTTPHeaderField: "Version")
-            request.setValue("responses=experimental", forHTTPHeaderField: "Openai-Beta")
-            request.setValue("codex_cli_rs/\(Self.codexClientVersion) (iOS; arm64)", forHTTPHeaderField: "User-Agent")
-            request.setValue("codex_cli_rs", forHTTPHeaderField: "Originator")
+            Self.applyCodexClientHeaders(to: &request)
             if let accountId = codexAccountId {
                 request.setValue(accountId, forHTTPHeaderField: "Chatgpt-Account-Id")
             }
@@ -957,6 +966,10 @@ final class OpenAIProvider: LLMProvider {
     /// unless `forceResponsesAPI` is set (Responses API provider type).
     var usesChatCompletionsAPI: Bool {
         if forceResponsesAPI { return false }
+        if absoluteEndpointOverride == nil,
+           GPT6AstraSupport.requiresOfficialResponses(modelID: model.id, baseURL: customBaseURL, isAzure: isAzure) {
+            return false
+        }
         if !isOAuth { return true }
         // Manual OAuth with custom base URL uses Chat Completions API
         if customBaseURL != nil { return true }
@@ -1050,6 +1063,7 @@ final class OpenAIProvider: LLMProvider {
         }
 
         // [T-ios-openai-body-oom] See streamRaw — carries the conversation too.
+        GPT6AstraSupport.prepare(&body, modelID: model.id, responses: false)
         try guardRequestBodySize(body, context: "chatCompletions")
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
@@ -1107,10 +1121,7 @@ final class OpenAIProvider: LLMProvider {
         applyKeyAuth(&request, token: token)
 
         if isCodexOAuth {
-            request.setValue(Self.codexClientVersion, forHTTPHeaderField: "Version")
-            request.setValue("responses=experimental", forHTTPHeaderField: "Openai-Beta")
-            request.setValue("codex_cli_rs/\(Self.codexClientVersion) (iOS; arm64)", forHTTPHeaderField: "User-Agent")
-            request.setValue("codex_cli_rs", forHTTPHeaderField: "Originator")
+            Self.applyCodexClientHeaders(to: &request)
             if let accountId = codexAccountId {
                 request.setValue(accountId, forHTTPHeaderField: "Chatgpt-Account-Id")
             }
@@ -1168,6 +1179,7 @@ final class OpenAIProvider: LLMProvider {
         }
 
         // [T-ios-openai-body-oom] See streamRaw — carries the conversation too.
+        GPT6AstraSupport.prepare(&body, modelID: model.id, responses: true)
         try guardRequestBodySize(body, context: "responsesAPI")
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
@@ -1613,7 +1625,9 @@ final class OpenAIProvider: LLMProvider {
         try guardRequestBodySize(body, context: "generateImage")
 
         // Try b64_json first; if the provider rejects it, retry without response_format
-        var triedWithoutFormat = userSetResponseFormat
+        // GPT Image 2.5 returns base64 by default and has no response_format
+        // parameter. Preserve explicit passthrough and other providers' probing.
+        var triedWithoutFormat = userSetResponseFormat || GPTImage25Support.matches(model.id)
         while true {
             if !triedWithoutFormat {
                 body["response_format"] = "b64_json"
@@ -1795,14 +1809,16 @@ final class OpenAIProvider: LLMProvider {
         appendField("model", model.id)
         appendField("prompt", prompt)
         appendField("n", "\(n)")
-        appendField("response_format", "b64_json")
+        if !GPTImage25Support.matches(model.id) {
+            appendField("response_format", "b64_json")
+        }
         if let size { appendField("size", size) }
         if let quality { appendField("quality", quality) }
 
         // Attach images — first image as "image", additional as "image[]"
         for (idx, img) in images.enumerated() {
             let ext = img.mimeType.split(separator: "/").last.map(String.init) ?? "png"
-            let fieldName = idx == 0 ? "image" : "image[]"
+            let fieldName = GPTImage25Support.matches(model.id) || idx > 0 ? "image[]" : "image"
             appendFile(fieldName, filename: "image\(idx).\(ext)", mimeType: img.mimeType, data: img.data)
         }
 
@@ -1885,22 +1901,29 @@ final class OpenAIProvider: LLMProvider {
 
     // MARK: - Image Generation (Codex OAuth image_generation tool)
 
+    /// Shared by model-use and Quick Test; API keys and custom endpoints keep
+    /// their existing Images API route.
+    var usesCodexImageGeneration: Bool {
+        GPTImage25Support.supportsCodexTool(model.id)
+            && isOAuth && customBaseURL == nil && !forceResponsesAPI
+    }
+
     /// Generate (or edit) an image through the Codex OAuth `image_generation`
     /// tool. Codex OAuth only — the caller (ModelUseOffloadBridge) must ensure
     /// this provider is a Codex OAuth instance.
     ///
     /// Unlike the API-key `/v1/images/generations` path, this drives a Codex
     /// text model (gpt-5.5 etc.) on `chatgpt.com/backend-api/codex/responses`
-    /// with the built-in `image_generation` tool, which invokes gpt-image-2
-    /// server-side. Reuses `streamRaw(isResponsesAPI:true)` for the endpoint +
+    /// with the built-in `image_generation` tool. Image 2 retains its legacy
+    /// default; Image 2.5 sends the selected model explicitly, with no downgrade.
+    /// Reuses `streamRaw(isResponsesAPI:true)` for the endpoint +
     /// full Codex auth header set, and crucially the OAuth token from
     /// CodexOAuthManager (NOT a chatgpt.com/api/auth/session web token, which
     /// 401s against the codex backend — see summary §8.1/§11.1).
     ///
     /// - Parameters:
     ///   - topLevelModel: Codex text model placed in `body["model"]` that
-    ///     triggers the tool (e.g. the latest gpt-* model). nil → `model.id`.
-    ///   - imageModel: informational; the tool resolves gpt-image-2 itself.
+    ///     triggers the tool (e.g. the latest gpt-* model). nil → `gpt-5.5`.
     func generateImageViaCodexResponses(
         prompt: String,
         inputImages: [LLMMessage.ImageAttachment] = [],
@@ -1908,11 +1931,22 @@ final class OpenAIProvider: LLMProvider {
         size: String? = nil,
         quality: String? = nil
     ) async throws -> LLMResponse {
-        // The verified request shape (summary §4.1): a plain-text instruction
-        // that asks the model to use the image_generation tool, the bare tool
-        // entry, string tool_choice="auto", low reasoning effort. size/quality
-        // are not part of this shape — the codex backend only does "auto"; the
-        // caller logs that they're ignored.
+        let body = try codexImageRequestBody(prompt: prompt, inputImages: inputImages,
+                                            topLevelModel: topLevelModel, size: size, quality: quality)
+        let (lineStream, _) = try await streamRaw(body: body, isResponsesAPI: true)
+        return try await consumeCodexImageStream(lineStream)
+    }
+
+    /// Side-effect-free request construction for regression tests.
+    func codexImageRequestBody(
+        prompt: String, inputImages: [LLMMessage.ImageAttachment] = [],
+        topLevelModel: String? = nil, size: String? = nil, quality: String? = nil
+    ) throws -> [String: Any] {
+        let imageTool = try GPTImage25Support.codexTool(modelID: model.id, size: size, quality: quality)
+        let textModel = topLevelModel ?? "gpt-5.5"
+        guard !textModel.isEmpty, !textModel.hasPrefix("gpt-image-") else {
+            throw LLMError.providerError(message: "Codex image generation requires a text model as chat_model, not an image model.")
+        }
         let userContent = "Use the image generation tool to create: \(prompt)"
         var input: [[String: Any]]
         if inputImages.isEmpty {
@@ -1931,21 +1965,18 @@ final class OpenAIProvider: LLMProvider {
             input = [["role": "user", "content": parts]]
         }
 
-        let body: [String: Any] = [
-            "model": topLevelModel ?? model.id,
+        return [
+            "model": textModel,
             "instructions": "You are a helpful assistant. Use tools when available.",
             "input": input,
             "store": false,
-            "tools": [["type": "image_generation"]],
+            "tools": [imageTool],
             "reasoning": ["effort": "low"],
             "include": [],
             "tool_choice": "auto",
             "parallel_tool_calls": true,
             "stream": true,
         ]
-
-        let (lineStream, _) = try await streamRaw(body: body, isResponsesAPI: true)
-        return try await consumeCodexImageStream(lineStream)
     }
 
     /// Consume a Codex Responses SSE stream and extract a generated image,

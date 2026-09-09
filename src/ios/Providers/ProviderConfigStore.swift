@@ -2850,6 +2850,15 @@ final class ProviderConfigStore: ObservableObject {
     /// Fetch models from the provider API, falling back to models.dev when the API
     /// returns an empty list or fails (e.g. custom base URL without /v1/models support).
     static func fetchModelsWithFallback(_ instance: ProviderInstance, forceRefresh: Bool = false) async throws -> ModelFetchResult {
+        // OAuth login has no /v1/models fetch here. Never label the static
+        // candidates as an API response or imply that account access was tested.
+        if instance.providerType == .openAI, instance.credentialType == .oauth,
+           ProviderKeychainHelper.loadOAuthString(instanceId: instance.id, account: "manual-oauth-token") == nil {
+            return ModelFetchResult(
+                models: OpenAIModelsAPI.fetchModelsOAuth(), source: "built-in",
+                warnings: [AppLocalized("This is a built-in model list, not an account access check. Test a model before using it; GPT-6 Astra always uses at least low reasoning effort.")]
+            )
+        }
         var warnings: [String] = []
         let isThirdParty = isThirdPartyOpenAICompat(instance)
 

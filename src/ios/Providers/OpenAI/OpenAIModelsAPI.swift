@@ -37,8 +37,9 @@ enum OpenAIModelsAPI {
         return models
     }
 
-    /// OAuth mode: return built-in Codex model list enriched with models.dev data.
-    /// OAuth tokens cannot call /v1/models, so we use the static list.
+    /// OAuth mode currently returns maintained candidates, enriched with metadata.
+    /// It does not query account-specific availability. Refreshing this list is
+    /// not a connectivity/access test, and enrichment cannot discover new IDs.
     static func fetchModelsOAuth() -> [LLMModel] {
         let enriched = ModelsDevAPI.enrichModels(LLMModel.allOpenAICodexOAuth)
         logger.info("Using built-in Codex OAuth model list (\(enriched.count) models, enriched)")
@@ -107,6 +108,12 @@ enum OpenAIModelsAPI {
                 ?? ((item["architecture"] as? [String: Any])?["output_modalities"] as? [String])
 
             var modality: ModelModality = (inputArr == nil && outputArr == nil) ? [.textInput, .textOutput] : []
+            if filterOpenAIOnly, inputArr == nil, outputArr == nil, GPT6AstraSupport.matches(id) {
+                modality = [.textInput, .imageInput, .textOutput]
+            }
+            if inputArr == nil, outputArr == nil, GPTImage25Support.matches(id) {
+                modality = [.textInput, .imageInput, .imageOutput]
+            }
             if let inputs = inputArr {
                 let bare = Set(inputs.map(Self.normalizeModality))
                 if bare.contains("text")  { modality.insert(.textInput) }

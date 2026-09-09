@@ -211,9 +211,16 @@ final class TestSession: ObservableObject {
             guard let openAI = provider as? OpenAIProvider else {
                 throw QuickTestError.unsupported(AppLocalized("This model's provider doesn't support image generation via Quick Test."))
             }
-            let resp = try await openAI.generateImage(
-                prompt: "A friendly cute mascot logo for an app called Minis, minimalist, centered, soft colors",
-                n: 1, size: "1024x1024", quality: nil)
+            let prompt = "A friendly cute mascot logo for an app called Minis, minimalist, centered, soft colors"
+            let resp: LLMResponse
+            if openAI.usesCodexImageGeneration {
+                let topModel = ModelUseOffloadBridge.resolveCodexTopLevelModel(
+                    forInstance: entry.providerInstanceId, inputJSON: "{}")
+                resp = try await openAI.generateImageViaCodexResponses(
+                    prompt: prompt, topLevelModel: topModel, size: "1024x1024")
+            } else {
+                resp = try await openAI.generateImage(prompt: prompt, n: 1, size: "1024x1024", quality: nil)
+            }
             guard let img = resp.mediaAttachments.first(where: { $0.type == .image }) else {
                 throw QuickTestError.noOutput(AppLocalized("No image was returned."))
             }
