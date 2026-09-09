@@ -1112,6 +1112,8 @@ struct ContentView: View {
     @State private var exportPreviewURL: URL?
     @State private var exportProgress: (done: Int, total: Int)? = nil
     @State private var exportSummary: ExportSummary? = nil
+    @State private var exportError: String?
+    @State private var exportAttachmentNotice = ""
     @State private var deleteInfo: DeleteInfo?
 
     // Single delete
@@ -1524,7 +1526,15 @@ struct ContentView: View {
             .presentationDetents([.medium])
         }
         .sheet(isPresented: $showExportPreview) {
-            ExportPreviewSheet(fileURL: exportFileURL, previewURL: exportPreviewURL, summary: exportSummary)
+            ExportPreviewSheet(fileURL: exportFileURL, previewURL: exportPreviewURL, summary: exportSummary,
+                               attachmentNotice: exportAttachmentNotice)
+        }
+        .alert(AppLocalized("Export failed"), isPresented: Binding(
+            get: { exportError != nil }, set: { if !$0 { exportError = nil } }
+        )) {
+            Button(AppLocalized("OK"), role: .cancel) { exportError = nil }
+        } message: {
+            Text(exportError ?? "")
         }
         .sheet(item: $folderPickerRequest, onDismiss: {
             // Mirror the delete sheet's pattern (see the comment near
@@ -5241,6 +5251,7 @@ struct ContentView: View {
     enum ExportFormat { case json, plainText }
 
     private func exportSessions(ids: Set<String>, format: ExportFormat) {
+        guard !isExporting else { return }
         let targetSessions = sessions.filter { ids.contains($0.id) }
         guard !targetSessions.isEmpty else { return }
 
@@ -5263,7 +5274,7 @@ struct ContentView: View {
             do {
                 try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
             } catch {
-                await MainActor.run { isExporting = false; exportProgress = nil }
+                await MainActor.run { isExporting = false; exportProgress = nil; exportError = error.localizedDescription }
                 return
             }
 
@@ -5275,7 +5286,10 @@ struct ContentView: View {
             } else {
                 baseName = "minis-sessions-\(ids.count)"
             }
-            let payloadURL = workDir.appendingPathComponent("\(baseName).\(ext)")
+            // Fixed internal names cannot collide with README/attachment manifest
+            // even when the user names a session "attachments" or "README".
+            let payloadURL = workDir.appendingPathComponent("conversation.\(ext)")
+            let files = ConversationExportFiles(directory: workDir)
 
             // No cheap per-session count available; progress total grows as
             // each session loads (handled inside the stream functions).
@@ -5286,35 +5300,39 @@ struct ContentView: View {
                 switch format {
                 case .json:
                     summary = try await Self.streamExportAsJSON(
-                        targetSessions, to: payloadURL,
+                        targetSessions, to: payloadURL, files: files,
                         progress: { done, total in
                             Task { @MainActor in exportProgress = (done, total) }
                         }
                     )
                 case .plainText:
                     summary = try await Self.streamExportAsPlainText(
-                        targetSessions, to: payloadURL,
+                        targetSessions, to: payloadURL, files: files,
                         progress: { done, total in
                             Task { @MainActor in exportProgress = (done, total) }
                         }
                     )
                 }
+                if format == .plainText {
+                    try FileManager.default.copyItem(at: payloadURL, to: workDir.appendingPathComponent("conversation.md"))
+                }
+                try files.finish()
             } catch {
                 try? FileManager.default.removeItem(at: tmpRoot)
-                await MainActor.run { isExporting = false; exportProgress = nil }
+                await MainActor.run { isExporting = false; exportProgress = nil; exportError = error.localizedDescription }
                 return
             }
 
-            // Zip the workDir (single file inside, but zip wrapping keeps spec contract
-            // and shrinks large text payloads significantly).
+            // Zip the complete transcript + attachments + manifest together.
             let zipURL = tmpRoot.appendingPathComponent("\(baseName).zip")
             let finalURL: URL
             do {
                 try await Self.createZip(from: workDir, to: zipURL)
                 finalURL = zipURL
             } catch {
-                // Fall back to raw payload if zipping failed.
-                finalURL = payloadURL
+                // Never silently export only text when its attachments need the ZIP.
+                await MainActor.run { isExporting = false; exportProgress = nil; exportError = error.localizedDescription }
+                return
             }
 
             // Compute summary metadata
@@ -5342,6 +5360,7 @@ struct ContentView: View {
                 // finalURL IS payloadURL and the two are simply the same file.
                 exportPreviewURL = payloadURL
                 exportSummary = isMulti ? summaryWithSize : nil
+                exportAttachmentNotice = String(format: AppLocalized("Bundled files: %d. Missing or unbundled references: %d. See README.txt."), files.fileCount, files.warningCount)
                 showExportPreview = true
             }
         }
@@ -5349,24 +5368,7 @@ struct ContentView: View {
 
     /// Wrap a directory into a zip via NSFileCoordinator(.forUploading).
     private static func createZip(from sourceDir: URL, to zipURL: URL) async throws {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            let coordinator = NSFileCoordinator()
-            var nsError: NSError?
-            coordinator.coordinate(readingItemAt: sourceDir,
-                                   options: .forUploading,
-                                   error: &nsError) { zippedURL in
-                do {
-                    if FileManager.default.fileExists(atPath: zipURL.path) {
-                        try FileManager.default.removeItem(at: zipURL)
-                    }
-                    try FileManager.default.copyItem(at: zippedURL, to: zipURL)
-                    cont.resume()
-                } catch {
-                    cont.resume(throwing: error)
-                }
-            }
-            if let nsError { cont.resume(throwing: nsError) }
-        }
+        try ConversationExportFiles.createArchive(from: sourceDir, to: zipURL)
     }
 
     /// Stream JSON export to disk in batches of 50 messages — avoids loading
@@ -5374,6 +5376,7 @@ struct ContentView: View {
     private static func streamExportAsJSON(
         _ targetSessions: [ChatSession],
         to fileURL: URL,
+        files: ConversationExportFiles,
         progress: @escaping (Int, Int) -> Void
     ) async throws -> ExportSummary {
         FileManager.default.createFile(atPath: fileURL.path, contents: nil)
@@ -5393,6 +5396,7 @@ struct ContentView: View {
         var firstSession = true
 
         for session in targetSessions {
+            let sessionRoot = AIChatViewModel.minisPersistentBase.appendingPathComponent(session.id)
             let allMessages = await ChatStore.shared.loadMessages(sessionId: session.id)
             guard let firstUserIdx = allMessages.firstIndex(where: { $0.role == .user }) else { continue }
             let messages = Array(allMessages[firstUserIdx...])
@@ -5440,13 +5444,20 @@ struct ContentView: View {
 
             for msg in messages {
                 done += 1
-                if msg.isToolResultOnly { continue }
+                // Browser/tool images live in tool-result rows, not mediaRef
+                // parts. Keep those rows or the exported conversation loses them.
+                if msg.isToolResultOnly && !msg.parts.contains(where: {
+                    if case .toolResult(let result) = $0 {
+                        return result.mediaRef != nil || result.snapshot?.mediaRef != nil
+                    }
+                    return false
+                }) { continue }
 
                 var cleanParts: [[String: Any]] = []
                 for part in msg.parts {
                     switch part {
                     case .text(let text):
-                        cleanParts.append(["type": "text", "text": text])
+                        cleanParts.append(["type": "text", "text": files.rewriteReferences(in: text, sessionRoot: sessionRoot, sharedRoot: AIChatViewModel.minisSharedPersistentDir)])
                     case .toolUse(let tu):
                         var toolDict: [String: Any] = ["type": "tool_use", "name": tu.name]
                         if let desc = tu.description { toolDict["description"] = desc }
@@ -5470,9 +5481,26 @@ struct ContentView: View {
                             if let text = snap.text { resultDict["snapshot"] = text }
                             if let dur = snap.duration { resultDict["duration"] = dur }
                         }
+                        var mediaItems: [[String: Any]] = []
+                        for ref in Set([tr.mediaRef, tr.snapshot?.mediaRef].compactMap { $0 }) {
+                            let source = await ChatStore.shared.mediaFileURL(for: ref)
+                            let item = files.copy(source, allowedRoots: [sessionRoot], label: ref.originalFileName ?? ref.relativePath)
+                            var media: [String: Any] = ["mimeType": ref.mimeType, "name": item.source]
+                            if let path = item.path { media["path"] = path }
+                            if let warning = item.warning { media["warning"] = warning }
+                            mediaItems.append(media)
+                            summary.attachmentCount += 1
+                        }
+                        if !mediaItems.isEmpty { resultDict["media"] = mediaItems }
                         cleanParts.append(resultDict)
-                    case .mediaRef:
-                        cleanParts.append(["type": "media", "note": "image/file attachment"])
+                    case .mediaRef(let ref):
+                        let source = await ChatStore.shared.mediaFileURL(for: ref)
+                        let item = files.copy(source, allowedRoots: [sessionRoot], label: ref.originalFileName ?? ref.relativePath)
+                        var media: [String: Any] = ["type": "media", "mimeType": ref.mimeType,
+                                                    "name": ref.originalFileName ?? source.lastPathComponent]
+                        if let path = item.path { media["path"] = path }
+                        if let warning = item.warning { media["warning"] = warning }
+                        cleanParts.append(media)
                         summary.attachmentCount += 1
                     }
                 }
@@ -5522,6 +5550,7 @@ struct ContentView: View {
     private static func streamExportAsPlainText(
         _ targetSessions: [ChatSession],
         to fileURL: URL,
+        files: ConversationExportFiles,
         progress: @escaping (Int, Int) -> Void
     ) async throws -> ExportSummary {
         FileManager.default.createFile(atPath: fileURL.path, contents: nil)
@@ -5540,6 +5569,7 @@ struct ContentView: View {
         var done = 0
 
         for (i, session) in targetSessions.enumerated() {
+            let sessionRoot = AIChatViewModel.minisPersistentBase.appendingPathComponent(session.id)
             if i > 0 {
                 try handle.write(contentsOf: Data(("\n\n" + String(repeating: "=", count: 60) + "\n\n").utf8))
             }
@@ -5558,15 +5588,22 @@ struct ContentView: View {
             var batchWritten = 0
             for msg in messages {
                 done += 1
-                if msg.isToolResultOnly { continue }
+                if msg.isToolResultOnly && !msg.parts.contains(where: {
+                    if case .toolResult(let result) = $0 {
+                        return result.mediaRef != nil || result.snapshot?.mediaRef != nil
+                    }
+                    return false
+                }) { continue }
 
-                let role = msg.role == .user ? "User" : "Minis"
+                let role = msg.isToolResultOnly ? "Tool" : (msg.role == .user ? "User" : "Minis")
                 let time = timeFmt.string(from: msg.createdAt)
                 var parts: [String] = []
                 for part in msg.parts {
                     switch part {
                     case .text(let text):
-                        if !text.isEmpty { parts.append(text) }
+                        if !text.isEmpty {
+                            parts.append(files.rewriteReferences(in: text, sessionRoot: sessionRoot, sharedRoot: AIChatViewModel.minisSharedPersistentDir))
+                        }
                     case .toolUse(let tu):
                         parts.append("[Tool: \(tu.description ?? tu.name)]")
                     case .toolResult(let tr):
@@ -5576,8 +5613,24 @@ struct ContentView: View {
                         } else {
                             parts.append("[Result: \(tr.success ? "ok" : "failed")]")
                         }
-                    case .mediaRef:
-                        parts.append("[Attachment]")
+                        for ref in Set([tr.mediaRef, tr.snapshot?.mediaRef].compactMap { $0 }) {
+                            let source = await ChatStore.shared.mediaFileURL(for: ref)
+                            let item = files.copy(source, allowedRoots: [sessionRoot], label: ref.originalFileName ?? ref.relativePath)
+                            if let path = item.path {
+                                parts.append(ref.mimeType.hasPrefix("image/") ? "![Tool image](\(path))" : "[Tool attachment](\(path))")
+                            } else {
+                                parts.append("[Missing attachment: \(item.source)]")
+                            }
+                            summary.attachmentCount += 1
+                        }
+                    case .mediaRef(let ref):
+                        let source = await ChatStore.shared.mediaFileURL(for: ref)
+                        let item = files.copy(source, allowedRoots: [sessionRoot], label: ref.originalFileName ?? ref.relativePath)
+                        if let path = item.path {
+                            parts.append(ref.mimeType.hasPrefix("image/") ? "![Image](\(path))" : "[Attachment](\(path))")
+                        } else {
+                            parts.append("[Missing attachment: \(item.source)]")
+                        }
                         summary.attachmentCount += 1
                     }
                 }
@@ -5735,12 +5788,19 @@ private struct ExportPreviewSheet: View {
     /// caller has nothing separate to offer.
     var previewURL: URL? = nil
     let summary: ExportSummary?
+    var attachmentNotice: String = ""
 
     /// File to read for the on-screen text.
     private var textSourceURL: URL? { previewURL ?? fileURL }
     @Environment(\.dismiss) private var dismiss
-    @State private var showShareSheet = false
-    @State private var showFilePicker = false
+    private struct ExportDestination: Identifiable {
+        enum Kind { case share, files }
+        let id = UUID()
+        let url: URL
+        let kind: Kind
+    }
+    @State private var destination: ExportDestination?
+    @State private var showMissingFile = false
     @State private var copied = false
     @State private var previewText: String = ""
     @State private var fileSize: String = ""
@@ -5781,6 +5841,12 @@ private struct ExportPreviewSheet: View {
                 }
 
                 // Action buttons
+                if !attachmentNotice.isEmpty {
+                    Text(attachmentNotice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal)
+                }
                 HStack(spacing: 0) {
                     // [T-export-preview-blank] Copy needs a TEXT source. It used to
                     // test `fileURL`, which is the zip, so Copy silently vanished
@@ -5798,10 +5864,10 @@ private struct ExportPreviewSheet: View {
                         }
                     }
                     actionButton(icon: "square.and.arrow.up", label: AppLocalized("Share")) {
-                        showShareSheet = true
+                        presentExport(.share)
                     }
                     actionButton(icon: "folder", label: AppLocalized("Save to Files")) {
-                        showFilePicker = true
+                        presentExport(.files)
                     }
                 }
                 .padding(.vertical, 12)
@@ -5814,15 +5880,16 @@ private struct ExportPreviewSheet: View {
                     Button(AppLocalized("Done")) { dismiss() }
                 }
             }
-            .sheet(isPresented: $showShareSheet) {
-                if let url = fileURL {
-                    ShareSheet(url: url)
+            .sheet(item: $destination) { item in
+                switch item.kind {
+                case .share: ShareSheet(url: item.url)
+                case .files: DocumentExportPicker(url: item.url)
                 }
             }
-            .sheet(isPresented: $showFilePicker) {
-                if let url = fileURL {
-                    DocumentExportPicker(url: url)
-                }
+            .alert(AppLocalized("Export file unavailable"), isPresented: $showMissingFile) {
+                Button(AppLocalized("OK"), role: .cancel) { }
+            } message: {
+                Text(AppLocalized("The export file is missing. Close this preview and export the conversation again."))
             }
             .task {
                 if summary == nil {
@@ -5873,6 +5940,14 @@ private struct ExportPreviewSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color(UIColor.secondarySystemBackground))
+    }
+
+    private func presentExport(_ kind: ExportDestination.Kind) {
+        guard let url = fileURL, ConversationExportFiles.isReadableFile(url) else {
+            showMissingFile = true
+            return
+        }
+        destination = ExportDestination(url: url, kind: kind)
     }
 
     private func summaryRow(_ key: String, _ value: String) -> some View {
@@ -5976,12 +6051,19 @@ private struct ShareSheet: UIViewControllerRepresentable {
 
 private struct DocumentExportPicker: UIViewControllerRepresentable {
     let url: URL
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forExporting: [url])
+    func makeUIViewController(context: Context) -> UIViewController {
+        // Recheck at presentation, not only at the button tap. UIKit throws an
+        // NSException (not a catchable Swift Error) for a missing source file.
+        guard ConversationExportFiles.isReadableFile(url) else {
+            return UIHostingController(rootView: Text(AppLocalized("The export file is missing. Close this preview and export the conversation again.")).padding())
+        }
+        // Default export MOVES the source; a second save then crashes on its
+        // stale URL. Keep our ZIP alive for repeated save/share operations.
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
         picker.shouldShowFileExtensions = true
         return picker
     }
-    func updateUIViewController(_ vc: UIDocumentPickerViewController, context: Context) {}
+    func updateUIViewController(_ vc: UIViewController, context: Context) {}
 }
 
 // MARK: - Draggable FAB

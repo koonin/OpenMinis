@@ -15,7 +15,7 @@ private let logger = AppLogger(category: "ModelUseOffload")
 
 @objc public class ModelUseOffloadBridge: NSObject {
 
-    private static let noModelsHint = "No models available. Go to Settings > Model Groups to add models that the agent can use."
+    private static let noModelsHint = "No models are authorized for minis-model-use. Go to Settings > Model Groups > Agent Loop Models and add the desired model, or ask for approval via minis-config defaults.agentLoopEntries. Adding it only to a group is not sufficient. Vision Input is for image-to-text descriptions, NOT image generation/editing. Do not substitute local filters for requested AI image editing without user agreement."
 
     // MARK: - List Models
 
@@ -126,6 +126,8 @@ private let logger = AppLogger(category: "ModelUseOffload")
             "instance_label": instance?.label ?? "unknown",
             "provider_type": instance?.providerType.displayName ?? "unknown",
             "modalities": supported,
+            "capability_source": entry.overrides.modalityOverride != nil ? "user_override"
+                : (entry.model.provider == "OpenAI" && GPTImage25Support.matches(entry.model.id) ? "verified_model_contract" : "metadata"),
             "context_window": entry.model.contextWindowTokens,
         ]
         // Surface the configured + resolved image endpoint for image-output models
@@ -2167,7 +2169,7 @@ enum ModelUseError: LocalizedError {
         case .invalidInput(let msg):
             return msg
         case .modalityNotSupported(let model, let required, let supported):
-            return "Model '\(model)' does not support \(required). Supported modalities: \(supported.joined(separator: ", ")). Use 'minis-model-use list' to find a model with the required capability."
+            return "Local capability validation stopped this request before contacting the provider. Model '\(model)' is configured without \(required); configured modalities: \(supported.joined(separator: ", ")). Check the model's capability overrides in provider settings, or use 'minis-model-use list' to choose a compatible model. This is not a provider rejection or an account-access test."
         }
     }
 }

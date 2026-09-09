@@ -1977,7 +1977,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "You have \(ProviderConfigStore.shared.resolvedAgentLoopEntries.count) model(s) available. "
             + "Use `minis-model-use list` to see them (includes each model's modality capabilities like image_output, audio_output, etc.), "
             + "`search <query>` to filter by name/provider. "
-            + "`run --model <id_or_name>` sends an OpenAI Chat Completions request; pass input via --input <json_file> or stdin, "
+            + "`run --model <id_or_name>` accepts OpenAI-style messages and routes to the model's appropriate chat, image, or audio endpoint; pass input via --input <json_file> or stdin, "
             + "output goes to stdout or --output <path>. "
             // [T-agent-prompt-consistency-pass] Synced with the passthrough-era CLI
             // (T-model-use-passthrough-mode): the old unconditional "Never hand-write
@@ -1988,6 +1988,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "Results may carry `warnings` (fields that were ignored/downgraded and why) and `applied_extras` (which extras actually took effect) — read them to self-correct. Run --help for the full contract before using these. "
             + "Models may support multimodal output (image generation, TTS/audio, video) — check the modalities field in list output. "
             + "For image_output models, put the prompt in the user message and image params under `generation_config`: OpenAI image models use `generation_config.{n,size,quality}`, Gemini image models use `generation_config.{aspect_ratio,image_size,number_of_images,person_generation}`. "
+            + "For AI image generation or restyling a user's photo, use an authorized image_output model; editing also requires image_input and the ACTUAL source image in the request (not only its description). Do not silently replace model-based editing with Pillow/ImageMagick filters. If no suitable model is authorized, explain the limitation and ask permission before an alternative or configuration change. Agent Loop Models (defaults.agentLoopEntries) controls minis-model-use access; assigning a model to Primary/Sub/Vision Input alone does not grant it. Vision Input is image-to-text description, not an image-generation group. Model capability metadata is not proof of account/backend access: report the actual stage/error instead of claiming that the vendor model cannot edit images. "
             + "Example: {\"messages\":[{\"role\":\"user\",\"content\":\"<prompt>\"}],\"generation_config\":{\"size\":\"1024x1024\",\"n\":1}}. "
             + "IMPORTANT: image generation is SLOW (typically 1-5 min) — a single long blocking call with a large timeout (e.g. timeout: 600) is correct here (one render, one wait); use `delay` chains only when repeatedly CHECKING on something, not for one slow command. "
             + "Run with --help for full usage.\n"

@@ -1,6 +1,41 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "This group describes images in text. It is not an image generation group. Only models with image input and text output are listed." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "此分组用于看图并输出文字描述，不是绘图分组。这里只列出同时支持图片输入和文字输出的模型。" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "此群組用於看圖並輸出文字描述，不是繪圖群組。這裡只列出同時支援圖片輸入和文字輸出的模型。" } }
+      }
+    },
+    "Export failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "导出失败" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "匯出失敗" } }
+      }
+    },
+    "Export file unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "导出文件不可用" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "匯出檔案無法使用" } }
+      }
+    },
+    "The export file is missing. Close this preview and export the conversation again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "导出文件已不存在。请关闭预览，重新导出对话。" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "匯出檔案已不存在。請關閉預覽，重新匯出對話。" } }
+      }
+    },
+    "Bundled files: %d. Missing or unbundled references: %d. See README.txt." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "已打包 %d 个文件，另有 %d 处引用未打包或已缺失，详见 README.txt。" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "已打包 %d 個檔案，另有 %d 處引用未打包或已遺失，詳見 README.txt。" } }
+      }
+    },
     "This is a built-in model list, not an account access check. Test a model before using it; GPT-6 Astra always uses at least low reasoning effort." : {
       "extractionState" : "manual",
       "localizations" : {

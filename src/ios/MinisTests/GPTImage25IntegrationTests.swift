@@ -2,6 +2,58 @@ import XCTest
 @testable import Minis
 
 final class GPTImage25IntegrationTests: XCTestCase {
+    func testPersistedOutputOnlyBaseIsRepairedBeforeImageEditPreflight() throws {
+        for id in GPTImage25Support.modelIDs {
+            let stale = LLMModel(id: id, displayName: "Saved model", provider: "OpenAI",
+                                 modalityOverride: [.textInput, .imageOutput])
+            let saved = ModelEntry(providerInstanceId: "test-provider", model: stale)
+            let entry = try JSONDecoder().decode(ModelEntry.self, from: JSONEncoder().encode(saved))
+            XCTAssertEqual(entry.baseModel.modalityOverride, [.textInput, .imageOutput])
+            XCTAssertEqual(entry.model.capabilities.supportedModalities, [.textInput, .imageInput, .imageOutput])
+            XCTAssertEqual(entry.id, saved.id)
+            XCTAssertFalse(entry.model.canDescribeImages)
+
+            let provider = OpenAIProvider(oauthTokenProvider: { "unused" }, model: entry.model)
+            XCTAssertTrue(provider.usesCodexImageGeneration)
+            let image = LLMMessage.ImageAttachment(mimeType: "image/jpeg", data: Data([1, 2, 3]))
+            let request = try provider.codexImageRequestBody(prompt: "Restyle this photo as a cartoon",
+                                                           inputImages: [image], topLevelModel: "gpt-6-astra")
+            let tool = try XCTUnwrap((request["tools"] as? [[String: Any]])?.first)
+            XCTAssertEqual(tool["model"] as? String, id)
+            let input = try XCTUnwrap(request["input"] as? [[String: Any]])
+            let content = try XCTUnwrap(input.first?["content"] as? [[String: Any]])
+            XCTAssertEqual(content.last?["image_url"] as? String, "data:image/jpeg;base64,AQID")
+        }
+    }
+
+    func testRepairDoesNotOverrideUserIntentOrOtherModels() {
+        let stale = LLMModel(id: GPTImage25Support.sunburst, displayName: "Saved model", provider: "OpenAI",
+                             modalityOverride: [.textInput, .imageOutput])
+        let entry = ModelEntry(providerInstanceId: "test", model: stale,
+                               overrides: ModelOverrides(displayName: "My editor", modalityOverride: [.textInput, .imageOutput]),
+                               isHidden: true)
+        XCTAssertEqual(entry.model.displayName, "My editor")
+        XCTAssertFalse(entry.model.capabilities.supportedModalities.contains(.imageInput))
+        XCTAssertTrue(entry.isHidden)
+        for model in [LLMModel.gpt55, .gptImage2,
+                      LLMModel(id: "relay/gpt-image-2.5-sunburst", displayName: "Relay", provider: "OpenAI"),
+                      LLMModel(id: GPTImage25Support.sunburst, displayName: "Custom", provider: "Custom")] {
+            XCTAssertEqual(model.withVerifiedImageCapabilities(), model)
+        }
+    }
+
+    func testEnrichmentAndInferencePreserveVerifiedImageInput() {
+        let stale = LLMModel(id: GPTImage25Support.flare, displayName: "Saved", provider: "OpenAI",
+                             modalityOverride: [.textInput, .imageOutput])
+        for repaired in [ModelsDevAPI.enrichModel(stale), ModelsDevAPI.enrichModels([stale])[0], stale.withInferredModality()] {
+            XCTAssertEqual(repaired.modalityOverride, [.textInput, .imageInput, .imageOutput])
+        }
+        XCTAssertTrue(LLMModel.gpt6Astra.canDescribeImages)
+        XCTAssertFalse(LLMModel.gptImage25Sunburst.canDescribeImages)
+        XCTAssertFalse(LLMModel(id: "text-only", displayName: "Text", provider: "OpenAI",
+                                modalityOverride: [.textInput, .textOutput]).canDescribeImages)
+    }
+
     func testCatalogAndManualEntriesArePureImageGenerators() {
         for id in GPTImage25Support.modelIDs {
             let model = LLMModel(id: id, displayName: "Manual", provider: "OpenAI")

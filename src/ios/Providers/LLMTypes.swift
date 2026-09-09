@@ -605,6 +605,22 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
         return enriched
     }
 
+    /// Official Image 2.5 contract wins over stale cached/catalog BASE metadata.
+    /// ModelEntry applies explicit user overrides AFTER this repair. Do not
+    /// change unrelated providers, aliases, IDs, or account access settings.
+    func withVerifiedImageCapabilities() -> LLMModel {
+        guard provider == "OpenAI", GPTImage25Support.matches(id) else { return self }
+        var result = self
+        result.modalityOverride = [.textInput, .imageInput, .imageOutput]
+        return result
+    }
+
+    /// Vision fallback describes an image in text; image-editing models cannot
+    /// serve this role merely because they accept reference images.
+    var canDescribeImages: Bool {
+        capabilities.supportedModalities.isSuperset(of: [.imageInput, .textOutput])
+    }
+
     // MARK: - Capability Lookup
 
     /// Known capabilities keyed by provider name.

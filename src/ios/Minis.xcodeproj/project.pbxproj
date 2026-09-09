@@ -92,6 +92,7 @@
 		C0B1AF9A75C90C3C178A8804 /* VoiceTextSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7656F4130247E4002A3AC0C /* VoiceTextSanitizer.swift */; };
 		E51000001 /* MinisApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51000011 /* MinisApp.swift */; };
 		E51000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51000012 /* ContentView.swift */; };
+		AE0909000000000000000001 /* ConversationExportFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0909000000000000000002 /* ConversationExportFiles.swift */; };
 		E51000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E51000013 /* Assets.xcassets */; };
 		E51000004 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E51000014 /* Preview Assets.xcassets */; };
 		E52000001 /* LLMTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E52000011 /* LLMTypes.swift */; };
@@ -752,6 +753,7 @@
 		E51000010 /* Minis.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Minis.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E51000011 /* MinisApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinisApp.swift; sourceTree = "<group>"; };
 		E51000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AE0909000000000000000002 /* ConversationExportFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationExportFiles.swift; sourceTree = "<group>"; };
 		E51000013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E51000014 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		E52000011 /* LLMTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMTypes.swift; sourceTree = "<group>"; };
@@ -1740,6 +1742,7 @@
 			isa = PBXGroup;
 			children = (
 				E51000012 /* ContentView.swift */,
+				AE0909000000000000000002 /* ConversationExportFiles.swift */,
 				F1V00014 /* Alarms */,
 				F1V00015 /* Backup */,
 				F1V00010 /* Chat */,
@@ -2695,6 +2698,7 @@
 				BB1000100F700000000000AA /* ContextPolicy.swift in Sources */,
 				AADDA9E12F6ECCF400B66649 /* ThumbnailCache.swift in Sources */,
 				E51000002 /* ContentView.swift in Sources */,
+				AE0909000000000000000001 /* ConversationExportFiles.swift in Sources */,
 				AA26CCBA2F31080100AECF2D /* ISHKernel.m in Sources */,
 				E5JB00001 /* JiebaWrapper.mm in Sources */,
 				E5JB00002 /* TextSegmenter.swift in Sources */,

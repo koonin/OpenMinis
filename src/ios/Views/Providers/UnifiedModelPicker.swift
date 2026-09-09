@@ -129,7 +129,7 @@ struct ModelPickerConfig {
         // [T-ios-vision-group #182] Adding models to the Vision Group surfaces
         // image-capable models first — a text-only member there would be dead
         // weight the resolver silently filters out.
-        if gid == store.visionGroupId      { return [.imageInput] }
+        if gid == store.visionGroupId      { return [[.imageInput, .textOutput]] }
         return nil
     }
 

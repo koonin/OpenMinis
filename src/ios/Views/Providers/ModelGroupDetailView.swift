@@ -375,7 +375,7 @@ struct ModelGroupDetailView: View {
                 return AppLocalized("This group drives Voice Output — only models that can output audio are listed.", comment: "Add-models filter note for the bound voice output group")
             }
             if store.visionGroupId == gid {
-                return AppLocalized("This group describes images for models that cannot see them — only models that accept image input are listed.", comment: "Add-models filter note for the bound vision group")
+                return AppLocalized("This group describes images in text. It is not an image generation group. Only models with image input and text output are listed.", comment: "Add-models filter note for the bound vision group")
             }
             return nil
         }()

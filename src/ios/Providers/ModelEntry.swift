@@ -132,6 +132,9 @@ struct ModelEntry: Identifiable, Codable, Hashable {
     /// Effective model as seen by the rest of the app: `baseModel` with `overrides` applied.
     /// New override fields: add them to the memberwise rebuild below.
     var model: LLMModel {
+        // Repair persisted base records at read time too: users should not need
+        // to delete/re-add a model or lose their per-entry customizations.
+        let baseModel = self.baseModel.withVerifiedImageCapabilities()
         guard !overrides.isEmpty else { return baseModel }
         // LLMModel.displayName is a `let`, so rebuild via memberwise init to apply any override.
         return LLMModel(

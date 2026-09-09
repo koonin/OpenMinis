@@ -123,7 +123,7 @@ enum VisionGroupResolver {
         var members = group.memberEntryIds.compactMap { entryId -> ModelEntry? in
             guard let entry = store.entry(for: entryId),
                   !entry.isHidden,
-                  entry.model.capabilities.supportedModalities.contains(.imageInput),
+                  entry.model.canDescribeImages,
                   let instance = store.instance(for: entry.providerInstanceId),
                   instance.isEnabled else { return nil }
             return entry
@@ -411,7 +411,7 @@ enum VisionGroupResolver {
         // Throwing routes this into the normal per-candidate failure path: the reason is
         // recorded, the next candidate runs, and the user is told which model was
         // misdeclared instead of receiving a confident description of nothing.
-        guard provider.model.capabilities.supportedModalities.contains(.imageInput) else {
+        guard provider.model.canDescribeImages else {
             // [T-thinking-vision-diag] `imageCarried=false` is the single most valuable
             // fact in this whole file: it is the difference between "the model looked and
             // saw nothing" and "the model was never shown anything". The original bug
@@ -427,8 +427,8 @@ enum VisionGroupResolver {
                 + "\(entry.model.capabilities.supportedModalities.contains(.imageInput)) "
                 + "providerDeclares=false — request would carry NO image; skipping")
             throw VisionError.allCandidatesFailed(
-                "model does not accept image input (its catalog entry declares no image "
-                + "modality), so the image could not be sent"
+                "model must accept image input and produce text to describe an image; "
+                + "image-generation-only models cannot serve the Vision Input group"
             )
         }
 

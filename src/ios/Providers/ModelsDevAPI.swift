@@ -105,6 +105,7 @@ enum ModelsDevAPI {
     /// Looks up by provider name + model ID. Returns the original model if no match found.
     /// Only fills in fields that are currently nil/unset on the model.
     static func enrichModel(_ model: LLMModel) -> LLMModel {
+        let model = model.withVerifiedImageCapabilities()
         guard let registry = loadRegistry() else { return model }
         guard let match = resolveDevModel(for: model, in: registry) else { return model }
         return applyDevData(to: model, from: match.model, authoritative: match.authoritative)
@@ -285,6 +286,7 @@ enum ModelsDevAPI {
 
     /// Enrich an array of models in bulk.
     static func enrichModels(_ models: [LLMModel]) -> [LLMModel] {
+        let models = models.map { $0.withVerifiedImageCapabilities() }
         guard let registry = loadRegistry() else { return models }
         return models.map { model in
             // [T-modelsdev-id-normalization] Same resolver as the single-model
@@ -347,7 +349,7 @@ enum ModelsDevAPI {
             result.declaresNoEffortTiers = true
         }
 
-        return result
+        return result.withVerifiedImageCapabilities()
     }
 
     // MARK: - URL Matching Helpers
