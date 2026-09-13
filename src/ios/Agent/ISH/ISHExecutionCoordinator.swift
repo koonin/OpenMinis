@@ -515,22 +515,28 @@ actor ISHExecutionCoordinator {
                     let isDir = (lstatBuf.st_mode & S_IFMT) == S_IFDIR
                     if isDir {
                         logger.info("MOUNT [\(idx)] migrating real dir to persistDir")
-                        if let enumerator = fm.enumerator(at: hostDir, includingPropertiesForKeys: nil, options: []) {
-                            while let srcURL = enumerator.nextObject() as? URL {
-                                let rel = srcURL.path.replacingOccurrences(of: hostDir.path, with: "")
-                                let dstURL = persistDir.appendingPathComponent(rel)
-                                if !fm.fileExists(atPath: dstURL.path) {
-                                    try? fm.createDirectory(at: dstURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                                    try? fm.copyItem(at: srcURL, to: dstURL)
-                                }
-                            }
+                        // Preserve a recovery copy, including conflicting files,
+                        // before replacing a real directory with a bind mount.
+                        let backupDir = AIChatViewModel.minisConfigRoot
+                            .appendingPathComponent("mount-recovery", isDirectory: true)
+                            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+                        do {
+                            try fm.createDirectory(at: backupDir.deletingLastPathComponent(), withIntermediateDirectories: true)
+                            try fm.copyItem(at: hostDir, to: backupDir)
+                            try SharedStorageMigration.mergeMissing(from: hostDir, to: persistDir)
+                        } catch {
+                            logger.error("MOUNT [\(idx)] migration failed; original directory retained: \(error.localizedDescription)")
+                            continue
                         }
+                    } else {
+                        logger.error("MOUNT [\(idx)] unexpected file at mount point; refusing to delete it")
+                        continue
                     }
                     // Force-remove whatever is at hostDir (file, dir, or non-empty dir)
                     // Safety: only remove paths under data/var/minis/ to avoid accidentally
                     // deleting other fakefs directories (e.g. data/dev/) due to path bugs.
                     let dataVarMinis = RootfsManager.shared.dataPath.appendingPathComponent("var/minis").path
-                    guard hostDir.path.hasPrefix(dataVarMinis) else {
+                    guard hostDir.path.hasPrefix(dataVarMinis + "/") else {
                         logger.error("MOUNT [\(idx)] SAFETY: refusing removeItem outside var/minis: \(hostDir.path)")
                         break
                     }
@@ -540,6 +546,7 @@ actor ISHExecutionCoordinator {
                         try fm.removeItem(at: hostDir)
                     } catch {
                         logger.error("MOUNT [\(idx)] removeItem failed: \(error.localizedDescription)")
+                        continue
                     }
                 }
             }

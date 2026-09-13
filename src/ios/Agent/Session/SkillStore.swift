@@ -74,9 +74,11 @@ final class SkillStore: ObservableObject {
 
     private let fm = FileManager.default
     private var db: OpaquePointer?
+    private var storageOverride: (db: String, skills: URL, rootfs: URL)?
+    private var unavailableSkillIds = Set<String>()
 
     private var skillsDir: URL {
-        AIChatViewModel.minisSkillsPersistentDir
+        storageOverride?.skills ?? AIChatViewModel.minisSkillsPersistentDir
     }
 
     func skillDirectoryURL(for skillId: String) -> URL {
@@ -84,11 +86,13 @@ final class SkillStore: ObservableObject {
     }
 
     private var dbPath: String {
+        if let storageOverride { return storageOverride.db }
         let library = fm.urls(for: .libraryDirectory, in: .userDomainMask)[0]
         return library.appendingPathComponent("MinisChat/skills.db").path
     }
 
     private var rootfsSkillsDir: URL {
+        if let storageOverride { return storageOverride.rootfs }
         let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return documents.appendingPathComponent("alpine-rootfs/data/var/minis/skills")
     }
@@ -99,6 +103,14 @@ final class SkillStore: ObservableObject {
         loadSkills()
         installBundledSkills()
         migrateMarkBundledSkillsDirty()
+    }
+
+    /// Isolated storage for regression tests; never seeds bundled skills or sync.
+    init(databasePath: String, skillsDirectory: URL, rootfsDirectory: URL) {
+        storageOverride = (databasePath, skillsDirectory, rootfsDirectory)
+        openDatabase()
+        createTables()
+        loadSkills()
     }
 
     deinit {
@@ -1150,6 +1162,7 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     // MARK: - Session Overrides
 
     func isEnabledForSession(_ skillId: String, sessionId: String) -> Bool {
+        guard !unavailableSkillIds.contains(skillId) else { return false }
         if let override = dbSessionOverride(sessionId: sessionId, skillId: skillId) {
             return override
         }
@@ -1379,8 +1392,8 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     ///     markDirty(Skill, op:upsert).
     ///   • Existing SKILL.md whose mtime is newer than the DB's
     ///     `updated_at` → bump updated_at and markDirty.
-    ///   • DB row whose SKILL.md is gone from both the Library copy
-    ///     and the rootfs copy → dbDeleteSkill + markDirty op=delete.
+    ///   • Unreadable/missing files retain their DB records. Only explicit
+    ///     deletion may remove records or publish a cloud deletion.
     ///   • Bundled file (non-SKILL.md content under <skillId>/) mtime
     ///     newer than DB updated_at → bump + markDirty so the ZIP
     ///     asset gets re-uploaded.
@@ -1390,10 +1403,7 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
         var previousUpdatedAt: [String: Date] = [:]
         for skill in skills { previousUpdatedAt[skill.id] = skill.updatedAt }
 
-        // reload() already detects new dirs (discoverNewSkillsOnDisk)
-        // and drops orphans (the dbDeleteSkill branch inside loadSkills
-        // when both Library and rootfs SKILL.md are missing). It just
-        // doesn't markDirty for any of it — we layer that on top here.
+        // Reload discovers new files, but cannot infer deletion from I/O failure.
         let previousIds = Set(previousUpdatedAt.keys)
         loadSkills()
         let currentIds = Set(skills.map { $0.id })
@@ -1405,15 +1415,6 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
                 recordType: "Skill", recordId: id, operation: "upsert"
             ) }
             syncLog.info("[SkillSync] fakefs rescan → markDirty upsert (new): id=\(id.prefix(8))")
-        }
-
-        // Removed skills (agent rm -rf'd the dir).
-        let removed = previousIds.subtracting(currentIds)
-        for id in removed {
-            Task { await ChatStore.shared.markDirty(
-                recordType: "Skill", recordId: id, operation: "delete"
-            ) }
-            syncLog.info("[SkillSync] fakefs rescan → markDirty delete (gone): id=\(id.prefix(8))")
         }
 
         // Existing skills: check if anything inside the dir is newer
@@ -1468,7 +1469,9 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     }
 
     private func loadSkills() {
+        let previousBodies = Dictionary(uniqueKeysWithValues: skills.map { ($0.id, $0.body) })
         skills.removeAll()
+        unavailableSkillIds.removeAll()
 
         // 1. Load skills already registered in the DB
         var knownIds = Set<String>()
@@ -1539,9 +1542,11 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
                         let parsed = Self.parse(skillMD: rootfsContent)
                         body = parsed.body
                     } else {
-                        // Skill files deleted from both locations — remove from DB
-                        dbDeleteSkill(id: id)
-                        continue
+                        // An unavailable App Group, stale mount, locked file or
+                        // interrupted write is NOT a deletion. Retain metadata
+                        // and user settings, but don't advertise unusable skills.
+                        body = previousBodies[id] ?? ""
+                        unavailableSkillIds.insert(id)
                     }
                 }
 
