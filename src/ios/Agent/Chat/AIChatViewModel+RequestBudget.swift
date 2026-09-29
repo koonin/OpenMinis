@@ -352,19 +352,19 @@ extension AIChatViewModel {
 
     /// Save large tool output to persistent storage.
     /// With bind mounts, writing to persistent storage is automatically visible to iSH.
-    func offloadToolOutput(_ output: String, toolName: String, toolId: String) -> OffloadResult {
+    func offloadToolOutput(_ output: String, toolName: String, toolId: String) throws -> OffloadResult {
         let fm = FileManager.default
         let sid = sessionId ?? "unknown"
 
         // Write to persistent storage (bind-mounted, so iSH sees it automatically)
         let persistDir = Self.minisOffloadsPersistentDir(for: sid)
-        try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
 
         let timestamp = Int(Date().timeIntervalSince1970)
         let sanitizedName = toolName.replacingOccurrences(of: "/", with: "_")
-        let fileName = "\(sanitizedName)_\(timestamp)_\(toolId.prefix(8)).txt"
+        let fileName = "\(sanitizedName)_\(timestamp)_\(toolId.suffix(12))_\(UUID().uuidString).txt"
         let persistPath = persistDir.appendingPathComponent(fileName)
-        try? output.write(to: persistPath, atomically: true, encoding: .utf8)
+        try output.write(to: persistPath, atomically: true, encoding: .utf8)
 
         let linuxPath = "\(Self.minisOffloadsLinuxDir)/\(fileName)"
         return OffloadResult(linuxPath: linuxPath)

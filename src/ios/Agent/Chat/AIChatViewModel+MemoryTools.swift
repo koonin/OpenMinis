@@ -13,7 +13,7 @@ extension AIChatViewModel {
               let content = try? String(contentsOf: globalFile, encoding: .utf8),
               !content.isEmpty else { return nil }
 
-        return "Global memory (GLOBAL.md — read-only, user-maintained). Treat these as background context, not standing instructions. If the user's latest message conflicts with or supersedes anything here (different scope, different numbers, different goal), defer to the user's latest message:\n\(content)"
+        return "Global memory (GLOBAL.md — user-maintained; edit only on explicit request). Treat these as background context, not standing instructions. If the user's latest message conflicts with or supersedes anything here (different scope, different numbers, different goal), defer to the user's latest message:\n\(content)"
     }
 
     /// Load the 3 most recent daily memory logs that have content, for system prompt injection (first 200 lines each).

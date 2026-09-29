@@ -1325,29 +1325,17 @@ extension AIChatViewModel {
             scrollToBottomSignal.send()
         }
 
-        // Compose finalOutput with truncation/offload.
-        let maxToolResultLength = Self.kMaxToolResultChars
-        var finalOutput: String
-        if toolOutput.isEmpty {
-            finalOutput = "(no output)"
-        } else if toolOutput.count > maxToolResultLength {
-            let offloadResult = offloadToolOutput(toolOutput, toolName: tu.name, toolId: tu.id)
-            let offloadMinisURL = linuxPathToMinisURL(offloadResult.linuxPath)
-            let truncatedBody: String
-            if tu.name == "shell_execute" || tu.name == "browser_use" {
-                let halfLen = maxToolResultLength / 2
-                truncatedBody = String(toolOutput.prefix(halfLen))
-                    + "\n\n...\n\n"
-                    + String(toolOutput.suffix(halfLen))
-            } else {
-                truncatedBody = String(toolOutput.prefix(maxToolResultLength))
-            }
-            finalOutput = truncatedBody
-                + "\n\n[OUTPUT TRUNCATED] Full output (\(toolOutput.count) chars) saved to: \(offloadResult.linuxPath)"
-                + (offloadMinisURL.map { "\nminis_url: \($0)" } ?? "")
-                + "\nUse file_read tool to read the complete output."
-        } else {
-            finalOutput = toolOutput
+        // Persist full output before producing a bounded preview for the model.
+        var outputFilePath: String?
+        var finalOutput = AgentContextSupport.toolOutput(
+            toolOutput, toolName: tu.name, inlineLimit: Self.kMaxToolResultChars
+        ) { fullOutput in
+            let path = try offloadToolOutput(fullOutput, toolName: tu.name, toolId: tu.id).linuxPath
+            outputFilePath = path
+            return path
+        }
+        if let outputFilePath, let url = linuxPathToMinisURL(outputFilePath) {
+            finalOutput += "\nminis_url: \(url)"
         }
 
         // Image budget: reserve a slot atomically via the actor. If

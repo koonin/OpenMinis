@@ -114,6 +114,8 @@ final class CacheKeepAliveManager {
         let startTime = CFAbsoluteTimeGetCurrent()
         logger.info("🔥 cache keep-alive: sending warmup request session=\(sessionId.prefix(8)) model=\(provider.model.id) messages=\(vm.keepAliveHistory.count) tools=\(vm.keepAliveTools.count) systemPromptLen=\(vm.keepAliveSystemPrompt?.count ?? 0)")
 
+        let usageRequestId = UUID().uuidString
+        let usageStartedAt = Date()
         do {
             let usage = try await provider.sendWarmupRequest(
                 messages: vm.keepAliveHistory,
@@ -121,6 +123,11 @@ final class CacheKeepAliveManager {
                 tools: vm.keepAliveTools
             )
 
+            await ChatStore.shared.recordAuxiliaryUsage(
+                requestId: usageRequestId, sessionId: sessionId, kind: "cache_keepalive",
+                model: provider.model, providerType: ProviderType.anthropic.rawValue,
+                usage: usage, startedAt: usageStartedAt
+            )
             let durationMs = Int((CFAbsoluteTimeGetCurrent() - startTime) * 1000)
             let cacheRead = usage.cacheReadInputTokens ?? 0
             let cacheCreate = usage.cacheCreationInputTokens ?? 0

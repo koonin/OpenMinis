@@ -1894,8 +1894,6 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "- file_edit: Edit existing files with exact string replacement (old_string → new_string). Preferred over file_write for modifications — always file_read first.\n"
             + "- browser_use: Web browsing (navigate, screenshot, click, type, get_text, scroll, scroll_and_collect, get_readable, get_backbone, fetch, etc.). "
             + "Starts with a desktop Safari user agent. Use screenshot to see the page.\n"
-            + "- memory_write: Save a memory entry to today's daily log (YYYY-MM-DD.md). Use proactively to note user preferences, project patterns, and important context.\n"
-            + "- memory_get: Recall memories with keyword search. Check memory at the start of new topics to leverage past knowledge.\n\n"
             + "Current time (approximate): \(approximateTimeString) (\(TimeZone.current.identifier)). "
             + "Device languages: \((UserDefaults.standard.object(forKey: "AppleLanguages") as? [String] ?? Locale.preferredLanguages).joined(separator: ", ")).\n\n"
             + "Shared directory /var/minis/ (bidirectional read/write between shell and app):\n"
@@ -1904,7 +1902,7 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "  /var/minis/offloads/    — Auto-saved large outputs. Read with file_read.\n"
             + "  /var/minis/browser/     — Browser screenshots and extracts.\n"
             + "  /var/minis/shared/      — Cross-session shared storage for artifacts and documents. Organize by project or topic (e.g. shared/myproject/, shared/datasets/). Do NOT store temporary files here.\n"
-            + "  /var/minis/memory/GLOBAL.md    — Persistent global memory (read-only, user-maintained via Settings).\n"
+            + "  /var/minis/memory/GLOBAL.md    — Persistent global memory (user-maintained; edit only on explicit request).\n"
             + "  /var/minis/memory/YYYY-MM-DD.md — Daily memory log.\n"
             + "  /var/minis/mounts/<name>/ — User-mounted external folders from iOS Files (e.g. an Obsidian vault, Downloads, another app's iCloud container). Presence and names vary per user. Check this directory first when the task references external/user files. Some mounts may be read-only; write tools will reject writes with a clear error.\n\n"
             + "The minis:// URL scheme:\n"
@@ -2015,42 +2013,30 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
             + "- Settings deep links: when you tell the user \"go to Settings → X\" or want to point them at a specific setting, prefer a Markdown link `[Label](minis://settings/<path>)` over plain prose. Available paths: providers (list), providers/<instanceId> (one provider), model-groups (incl. Agent Loop), model-groups/<groupId>, usage (token usage), skills, memory, storage, shared-folders (Shared Folders: /var/minis/{shared,skills,memory}), mount-external (Mount External Folders), logs, appearance, background, scheduled-tasks, about, permissions, environments[?create_key=K&create_value=V[&create_note=N]], rootfs (also reachable as mirrors). Unknown paths fall back to Settings home, but prefer the exact path so users land where they want. These settings/action links are app deep links — render them as Markdown links in chat (same action-vs-resource rule as the minis:// section above: only /var/minis resource URLs may go to browser_use).\n"
             + "- To check if a variable is set, use `[ -n \"$VAR\" ] && echo 'set' || echo 'not set'`. "
             + "NEVER use echo $VAR, printenv VAR, or any command that would output the actual value into the conversation context.\n\n"
-            + "Memory system:\n"
-            + "- memory_write writes to today's daily log (YYYY-MM-DD.md) — use it for session notes, key facts, project context, things learned, and action items.\n"
-            + "- GLOBAL.md (/var/minis/memory/GLOBAL.md) stores persistent preferences, settings, and general-purpose conventions. To read it, use file_read (NOT memory_get). To update it, use file_read first then file_edit. If GLOBAL.md does not exist yet, use file_write to create it directly.\n"
-            + "- IMPORTANT: Only write to GLOBAL.md when the user explicitly asks (e.g. 'remember this globally', 'save to global memory'). Before editing, deduplicate and clean up — avoid ambiguity, repetition, or daily-log-style entries. GLOBAL.md should contain only concise, reusable knowledge (preferences, settings, conventions), NOT session logs or transient context.\n"
-            + "- Use memory_get to recall past knowledge before starting tasks — check if there are relevant memories that can help.\n"
-            + "- Proactively save memories (via memory_write to daily log) when you discover user preferences or important patterns — don't wait to be asked.\n"
-            + "- When the user says 'remember this' or similar, use memory_write to persist to the daily log. Only write to GLOBAL.md if the user specifically asks for global/persistent storage.\n"
-            + "- What NOT to remember: passwords, API keys, tokens, secrets, or any sensitive credentials. Warn the user about the risk first; only proceed if they explicitly confirm.\n"
-            + "- Keep memories concise, factual, and general-purpose — avoid noise that won't be useful later.\n\n"
+            + memoryGuidanceFragment
             + ScheduledTaskSetupGuide.agentGuidance
             + delegationPlannerPromptFragment
     }
 
-    /// [T-memory-toggle-gates-injection-and-tools-ios]
-    /// One-paragraph addendum that tells the model the current memory
-    /// gate state. Appended to baseSystemPrompt at every assemble site.
-    ///
-    /// When memory is OFF, the earlier "Available tools" and "Memory system"
-    /// sections in baseSystemPrompt still describe memory_get / memory_write
-    /// as if they existed. We don't surgically rewrite those (a giant
-    /// string concat that's already on the type-checker's edge); instead
-    /// we land an authoritative override at the end of the prompt so the
-    /// model knows the tools won't be registered, the memory files won't
-    /// be injected, and what to tell the user if they ask about memory.
+    /// Render only the instructions for tools actually available this session.
+    private var memoryGuidanceFragment: String {
+        guard memoryEnabled else { return "" }
+        return """
+        Memory system:
+        - Use memory_get for relevant prior knowledge; proactively save concise daily notes with memory_write: preferences, patterns, project facts and action items. Avoid repetitive or transient noise.
+        - "Remember this" means save to the daily log. Edit GLOBAL.md only on an explicit request for global/persistent memory; read it first, deduplicate, then file_edit (file_write if absent). GLOBAL.md holds reusable preferences and conventions, not session logs.
+        - Read GLOBAL.md with file_read, not memory_get. Never save credentials or secrets without warning the user and obtaining explicit confirmation.
+
+        """
+    }
+
+    /// State is separate from guidance so disabled sessions do not receive
+    /// instructions for unavailable memory tools.
     private var memoryStatusFragment: String {
         if memoryEnabled {
             return "\n\nMemory status: ENABLED for this session. GLOBAL.md and recent daily logs have been injected above (if non-empty), and memory_get / memory_write are available in the tool list."
         } else {
-            return "\n\nMemory status: DISABLED for this session. "
-                + "The user has turned off memory for this conversation. "
-                + "Despite any earlier mentions in this prompt:\n"
-                + "- GLOBAL.md and daily logs have NOT been injected — you do not have access to past memories.\n"
-                + "- The memory_get and memory_write tools are NOT registered — do not attempt to call them; they will not appear in your tool list.\n"
-                + "- If the user asks you to recall memories, save a memory, or wonders why earlier memories aren't visible, tell them memory is currently disabled for this session and they can re-enable it via the /memory slash command or in Settings.\n"
-                + "- This toggle is per-session. Other sessions may still have memory enabled.\n"
-                + "- SOUL.md (your persona / identity) is unaffected and remains active above."
+            return "\n\nMemory is disabled for this session: memory files are not injected and memory_get/memory_write are unavailable. Do not access or modify memory files through other tools. If asked to recall/save memory, explain how to re-enable it with /memory or Settings. Other sessions and SOUL.md are unaffected."
         }
     }
 

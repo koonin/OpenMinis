@@ -530,6 +530,8 @@
 		RCL000119 /* BackupHistoryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = RCL000219 /* BackupHistoryDetailView.swift */; };
 		RCL000120 /* BackupCategoryIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = RCL000220 /* BackupCategoryIcon.swift */; };
 		RCL000121 /* BackupHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = RCL000221 /* BackupHUD.swift */; };
+		C02900010000000000000001 /* AgentContextSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02900010000000000000003 /* AgentContextSupport.swift */; };
+		C02900010000000000000002 /* AgentContextSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02900010000000000000003 /* AgentContextSupport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1211,6 +1213,7 @@
 		RCL000219 /* BackupHistoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupHistoryDetailView.swift; sourceTree = "<group>"; };
 		RCL000220 /* BackupCategoryIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupCategoryIcon.swift; sourceTree = "<group>"; };
 		RCL000221 /* BackupHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupHUD.swift; sourceTree = "<group>"; };
+		C02900010000000000000003 /* AgentContextSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentContextSupport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -2056,6 +2059,7 @@
 				E5DSP0011 /* DelegatedSessionPolicy.swift */,
 				E53000014 /* ChatStore.swift */,
 				BB1000110F700000000000AA /* ContextPolicy.swift */,
+				C02900010000000000000003 /* AgentContextSupport.swift */,
 				E5FMI0011 /* FileMentionIndex.swift */,
 			);
 			path = Chat;
@@ -2662,6 +2666,7 @@
 				E5DSP0002 /* DelegatedSessionPolicy.swift in Sources */,
 				E5SMC0002 /* StaleMarkerClassifier.swift in Sources */,
 				BB1000120F700000000000AA /* ContextPolicy.swift in Sources */,
+				C02900010000000000000002 /* AgentContextSupport.swift in Sources */,
 				E5STG0002 /* ScheduledTaskSetupGuide.swift in Sources */,
 				E5LD00002 /* ToolLoopDetector.swift in Sources */,
 				E5GWF0004 /* GeminiWireFormat.swift in Sources */,
@@ -2696,6 +2701,7 @@
 				E5FP00100 /* AppGroupChangeWatcher.swift in Sources */,
 				AA0838A02F3B941A00049557 /* AboutView.swift in Sources */,
 				BB1000100F700000000000AA /* ContextPolicy.swift in Sources */,
+				C02900010000000000000001 /* AgentContextSupport.swift in Sources */,
 				AADDA9E12F6ECCF400B66649 /* ThumbnailCache.swift in Sources */,
 				E51000002 /* ContentView.swift in Sources */,
 				AE0909000000000000000001 /* ConversationExportFiles.swift in Sources */,

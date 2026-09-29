@@ -135,6 +135,7 @@ extension AIChatViewModel {
                 }
                 let (title, category, folderName) = try await Self.callSubModelForTitle(
                     conversationSummary: summary,
+                    usageSessionId: sessionId,
                     subEntry: subEntry,
                     folderNames: folderNames,
                     folderContext: folderContext
@@ -291,6 +292,7 @@ extension AIChatViewModel {
                 // silently re-filing the session would be a surprise move.
                 let (title, category, _) = try await callSubModelForTitle(
                     conversationSummary: summary,
+                    usageSessionId: sessionId,
                     subEntry: entry
                 )
                 let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -473,6 +475,7 @@ extension AIChatViewModel {
     /// recent member activity).
     private static func callSubModelForTitle(
         conversationSummary: String,
+        usageSessionId: String,
         subEntry: ModelEntry? = nil,
         folderNames: [String] = [],
         folderContext: [String] = []
@@ -492,6 +495,9 @@ extension AIChatViewModel {
         // `injectThinkingParams` and emits `enable_thinking: false` /
         // `reasoning_effort: "none"` / `thinking_budget: 0` per model
         // family.
+        let usageRequestId = UUID().uuidString
+        let usageStartedAt = Date()
+        let usageProviderType = ProviderConfigStore.shared.instance(for: entry.providerInstanceId)?.providerType.rawValue
         let provider = await AIChatViewModel.makeAgentProvider(for: entry)
         logger.info("[TitleGen] Using provider: \(provider.name), model: \(entry.model.id), thinkingLevel=.off")
 
@@ -566,6 +572,10 @@ extension AIChatViewModel {
                 stopReason = reason
             case .usage(let u):
                 usage = u
+                await ChatStore.shared.recordAuxiliaryUsage(
+                    requestId: usageRequestId, sessionId: usageSessionId, kind: "title",
+                    model: entry.model, providerType: usageProviderType, usage: u, startedAt: usageStartedAt
+                )
             // Title generation doesn't issue tools, so toolCallComplete /
             // toolInputDelta / contentBlockStart / reasoningContent /
             // reasoningEcho / thinkingDelta are all ignored. If a model

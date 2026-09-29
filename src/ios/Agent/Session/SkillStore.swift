@@ -1343,7 +1343,9 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
         let maxDescLength = 200
 
         var xml = "<available_skills>\n"
-        for skill in selected {
+        // Selection may use recency/frequency; rendering order must stay stable
+        // when the selected set is unchanged, so cache prefixes do not churn.
+        for skill in selected.sorted(by: { $0.id < $1.id }) {
             let escapedName = skill.name.xmlEscaped
             var desc = skill.description
             if desc.count > maxDescLength {
@@ -1363,7 +1365,7 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
         fragment += xml
 
         if hasMore {
-            let omitted = enabled.filter { s in !selected.contains(where: { $0.id == s.id }) }
+            let omitted = enabled.filter { s in !selected.contains(where: { $0.id == s.id }) }.sorted { $0.id < $1.id }
             let maxUndisclosed = 100 - selected.count
             let undisclosedNames = omitted.prefix(maxUndisclosed).map(\.name).joined(separator: ", ")
             fragment += "\n\n\(omitted.count) more skills not shown above: \(undisclosedNames). List /var/minis/skills/ or grep to search all."

@@ -183,21 +183,9 @@ extension AIChatViewModel {
         // every update is captured verbatim, ballooning the output with hundreds of redundant lines.
         // We replay each \r as a real terminal would: later text on the same line overwrites earlier text,
         // so only the final state of each line is kept — matching what you would actually see on screen.
-        var output = Self.sanitizeTerminalOutput(result.output)
-
-        // Apply truncation — keep head + tail so the model sees both the beginning and end
-        if output.count > Self.kMaxToolResultChars {
-            let totalChars = output.count
-            let totalLines = output.components(separatedBy: "\n").count
-            let halfLen = Self.kMaxToolResultChars / 2
-            let head = String(output.prefix(halfLen))
-            let tail = String(output.suffix(halfLen))
-            output = head
-                + "\n\n...\n\n"
-                + tail
-                + "\n\n[OUTPUT TRUNCATED] Showing first & last \(halfLen) of \(totalChars) chars (\(totalLines) lines total)."
-                + "\nUse file_read tool to read specific sections."
-        }
+        // The caller persists the complete sanitized output before applying
+        // its model-facing preview budget. Trimming here loses the middle.
+        let output = Self.sanitizeTerminalOutput(result.output)
 
         return CommandResult(output: output, exitCode: result.exitCode)
     }

@@ -600,6 +600,7 @@ actor ChatStore {
     }
 
     private func createTables() {
+        exec(AuxiliaryUsageLedger.schema)
         exec("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id          TEXT PRIMARY KEY,
@@ -4277,7 +4278,24 @@ actor ChatStore {
 
     // MARK: - Usage Statistics
 
-    /// A single usage record from a message with token usage data.
+    /// Local auxiliary requests have no chat bubble; keep their accounting
+    /// separate from message persistence to avoid affecting model context.
+    func recordAuxiliaryUsage(requestId: String, sessionId: String, kind: String,
+                              model: LLMModel, providerType: String?, usage: LLMUsage,
+                              startedAt: Date) {
+        let row = AuxiliaryUsageSnapshot(
+            requestId: requestId, sessionId: sessionId, modelId: model.id,
+            modelDisplayName: model.displayName, providerType: providerType, kind: kind,
+            createdAt: startedAt.timeIntervalSince1970,
+            input: usage.inputTokens, output: usage.outputTokens,
+            cacheWrite: usage.cacheCreationInputTokens ?? 0, cacheRead: usage.cacheReadInputTokens ?? 0
+        )
+        if !AuxiliaryUsageLedger.record(row, db: db) {
+            logger.error("Failed to persist auxiliary usage (\(kind))")
+        }
+    }
+
+    /// Usage from a chat message or a locally recorded auxiliary request.
     struct UsageRecord {
         let modelId: String
         let sessionId: String
@@ -4298,7 +4316,7 @@ actor ChatStore {
     /// Fetch all messages that have token usage, joined with their session's model_id.
     /// [T-ios-usage-orphan-rows GH#168] LEFT JOIN, not INNER JOIN.
     ///
-    /// The Usage page is built entirely from this query, so any row it drops is
+    /// The chat portion of the Usage page is built from this query, so any row it drops is
     /// silently missing from the user's reported totals. With an INNER JOIN, a
     /// message whose `sessions` row is gone — deleted, orphaned by a failed
     /// sync/migration, or never written — vanished from the totals even though
@@ -4359,6 +4377,15 @@ actor ChatStore {
             }
         }
         sqlite3_finalize(stmt)
+        records += AuxiliaryUsageLedger.fetch(db: db).map { row in
+            UsageRecord(
+                modelId: row.modelId, sessionId: row.sessionId,
+                date: Date(timeIntervalSince1970: row.createdAt),
+                usage: StoredTokenUsage(inputTokens: row.input, outputTokens: row.output,
+                                        cacheCreationTokens: row.cacheWrite, cacheReadTokens: row.cacheRead),
+                modelDisplayName: row.modelDisplayName, providerType: row.providerType, hasSnapshot: true
+            )
+        }
         return records
     }
 
