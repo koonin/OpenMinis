@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_bg_force_dark" />
+    <background android:drawable="@android:color/black" />
     <!-- [T-android-dark-app-icon-from-ios] The forced "Dark" app-icon variant
          must use the DARK "M" artwork (dark-tuned panels on a dark ground,
          ported from iOS Icon-1024-Dark) — NOT the light foreground. Previously

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_bg_force_light" />
+    <background android:drawable="@android:color/black" />
     <!-- [T-android-light-icon-preview-night-leak] Forced "Light" variant always
          uses the light M artwork (see the day variant). This -night copy must
          ALSO pin the always-light foreground rather than @mipmap/ic_launcher_
