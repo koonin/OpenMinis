@@ -21,9 +21,11 @@ Android application changes are excluded. The pre-integration revision is
 
 - Keep team `257ZBQBLS8`, `com.koon.minis`, `group.com.koon.minis`, local
   iCloud identifiers, the crowned-skull icon and the install entitlement gate.
-- Do not enable the new APNs entitlement: the existing provisioning profile
-  lacks Push Notifications. Local notifications remain available. Enabling
-  remote push later requires an updated profile, not stripped entitlements.
+- Enable the upstream APNs entitlement with the refreshed Push Notifications
+  provisioning profile. The Debug install gate requires the signed app to
+  contain `aps-environment=development` as well as the original App Group.
+  The existing CloudKit sync path and remote-notification background mode
+  remain unchanged; enabling push does not turn on iCloud sync.
 - Preserve skill metadata when storage is temporarily unavailable. Keep
   App Group migration and mount-recovery backups; missing files never imply
   an authorized skill deletion.
@@ -48,6 +50,10 @@ Android application changes are excluded. The pre-integration revision is
 
 - Signed iPhoneOS `build-for-testing` passed, including the app and extensions.
 - Signature validation confirmed `group.com.koon.minis` in the signed app.
+- The APNs follow-up signed device build passed. Both the embedded profile
+  and signed app contain `aps-environment=development`, retaining the same
+  App Group and iCloud container. Live background push delivery is not yet
+  verified; iCloud sync settings were not changed.
 - 136 standalone Swift scripts passed after using their required working
   directories and adapting source assertions to the preserved local policies.
 - Six other scripts are not green: two require UIKit, two compare Android
