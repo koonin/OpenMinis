@@ -50,14 +50,21 @@ struct BackupSettingsView: View {
     /// deliberately excluded instead of silently missing.
     static let noFilesTag = -1
 
-    /// Whether to encrypt. Defaults OFF, so the common case — back up, keep the
-    /// file — takes no passphrase and nothing to forget.
+    /// [T-backup-credentials-without-encryption] Categories whose export puts
+    /// real credentials in the package, and therefore the ones whose selection
+    /// makes the unencrypted warning worth showing.
     ///
-    /// The trade-off is stated rather than hidden: with encryption off the
-    /// package carries no credentials (secrets.json is base64, an encoding, not
-    /// protection), and the footer says so whenever Providers is selected. A
-    /// user who wants their API keys to travel turns this on.
-    @AppStorage("backup.encrypt") private var encryptBackup: Bool = false
+    /// `.mcpServers` belongs here for a reason that is easy to miss:
+    /// `mcp_servers.json` is copied verbatim, so any custom header the user
+    /// authored — an `Authorization: Bearer …` among them — travels in the
+    /// clear whether or not `.providers` was selected.
+    static let credentialCarryingCategories: Set<BackupCategory> = [
+        .providers, .environmentVariables, .mcpServers,
+    ]
+
+    /// Encrypt by default. Credential-bearing categories require encryption;
+    /// users can deselect those categories for an unencrypted package.
+    @AppStorage("backup.encrypt") private var encryptBackup: Bool = true
 
     @State private var isExporting = false
     @State private var statusText = ""
@@ -225,10 +232,16 @@ struct BackupSettingsView: View {
                     // and that losing it is final. A user who doesn't
                     // understand the second can lose everything.
                     Text("This passphrase encrypts the entire backup, including chats, files, and credentials. There is no way to recover a forgotten passphrase — the backup cannot be opened without it.")
-                } else if selected.contains(.providers) {
-                    // Say what turning it off actually costs, in the one case
-                    // where it costs something.
-                    Text("Without encryption the backup is not protected, and API keys are left out — restored providers will need their keys entered again. Anyone with the file can read everything else in it.")
+                } else if selected.contains(where: Self.credentialCarryingCategories.contains) {
+                    // [T-backup-credentials-without-encryption] This used to
+                    // read "API keys are left out", which was the old
+                    // behaviour. Now they are IN, so the footer has to say the
+                    // opposite — and say it as a warning, because the risk has
+                    // moved from "my backup is useless" to "my keys are
+                    // readable by anyone holding this file".
+                    Label("Turn on encryption to back up credentials and MCP configuration, or deselect those categories.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
                 } else {
                     Text("Without encryption the backup is not protected — anyone with the file can read its contents.")
                 }
@@ -381,10 +394,31 @@ struct BackupSettingsView: View {
                                        : "Excluded (too large)",
                                        value: "\(result.skippedFiles) file(s)")
                     }
-                    // Share / Save need the local file — gone once it was
-                    // removed after full delivery. The destinations list below
-                    // is what remains relevant then.
-                    if shareURL != nil {
+                    // [T-backup-share-when-undelivered] Offer Share / Save only
+                    // when the user still has to move the package themselves.
+                    //
+                    // Two conditions, and both matter:
+                    //
+                    //  * `shareURL != nil` — the local file must still exist.
+                    //    It is deleted once every destination reports a
+                    //    VERIFIED copy, and a button that opens a share sheet
+                    //    on a missing file is worse than no button.
+                    //
+                    //  * `deliveryResults.isEmpty` — nothing carried it away.
+                    //    This is the half that was missing. A run WITH
+                    //    destinations that partially failed keeps its local
+                    //    copy, so the old `shareURL != nil` test showed both
+                    //    buttons — exactly the "已经选了备份位置，这两个按钮
+                    //    不该出现" the report describes. Reading the results
+                    //    rather than `hasDestination` is deliberate: what
+                    //    matters is whether THIS run had somewhere to go, not
+                    //    whether a destination happens to be configured now.
+                    //
+                    // A failed delivery is not left without an exit: the
+                    // per-destination rows below name what went wrong, and the
+                    // footer states the local copy was kept, so the package is
+                    // still reachable from Files (Minis ▸ Backups).
+                    if shareURL != nil, deliveryResults.isEmpty {
                         Button {
                             showShare = true
                         } label: {
@@ -557,11 +591,10 @@ struct BackupSettingsView: View {
     }
 
     private var passphraseValid: Bool {
-        // A passphrase is required ONLY when encryption is on. With it off the
-        // package simply ships without credentials, which is a legitimate
-        // choice — blocking it made "Start Backup" permanently un-tappable for
-        // anyone who left encryption off (the default).
-        guard encryptBackup else { return true }
+        // Never silently drop credentials or put them in a plaintext package.
+        guard encryptBackup else {
+            return selected.isDisjoint(with: Self.credentialCarryingCategories)
+        }
         return !passphrase.isEmpty && passphrase == confirmPassphrase
     }
 
@@ -984,12 +1017,9 @@ struct BackupSettingsView: View {
             maxFileBytes: maxFileSizeMB == Self.unlimitedTag ? nil
                 : maxFileSizeMB == Self.noFilesTag ? 0
                 : Int64(maxFileSizeMB) * 1024 * 1024,
-            // Credentials only ship when the package is encrypted. secrets.json
-            // is base64 — an encoding, not protection — so an unencrypted
-            // package carrying keys would be a plaintext copy of them. The
-            // exporter refuses that combination independently; this makes the
-            // UI agree rather than walk into that error.
-            includeCredentials: encryptBackup,
+            // Keep credentials so restore is complete. The UI and exporter
+            // both require encryption for these categories.
+            includeCredentials: true,
             passphrase: encryptBackup && !passphrase.isEmpty ? passphrase : nil,
             allowResume: resuming)
 

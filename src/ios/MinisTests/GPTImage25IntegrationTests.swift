@@ -61,7 +61,7 @@ final class GPTImage25IntegrationTests: XCTestCase {
         }
         for id in [GPTImage25Support.sunburst, GPTImage25Support.flare] {
             XCTAssertEqual(LLMModel.allOpenAI.filter { $0.id == id }.count, 1)
-            XCTAssertEqual(OpenAIModelsAPI.fetchModelsOAuth().filter { $0.id == id }.count, 1)
+            XCTAssertEqual(ModelsDevAPI.enrichModels(LLMModel.allOpenAICodexOAuth).filter { $0.id == id }.count, 1)
         }
         XCTAssertTrue(LLMModel.allOpenAICodexOAuth.contains { $0.id == "gpt-image-2" })
     }
@@ -116,7 +116,7 @@ final class GPTImage25IntegrationTests: XCTestCase {
                                overrides: ModelOverrides(displayName: "My Image 2"), isHidden: true)
         XCTAssertTrue(store.addEntry(prior))
         for _ in 0..<2 {
-            store.replaceEntries(for: instanceID, models: OpenAIModelsAPI.fetchModelsOAuth())
+            store.replaceEntries(for: instanceID, models: ModelsDevAPI.enrichModels(LLMModel.allOpenAICodexOAuth))
             for id in [GPTImage25Support.sunburst, GPTImage25Support.flare] {
                 XCTAssertEqual(store.entries(for: instanceID).filter { $0.baseModel.id == id }.count, 1)
             }

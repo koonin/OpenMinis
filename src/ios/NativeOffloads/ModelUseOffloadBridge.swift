@@ -228,7 +228,7 @@ private let logger = AppLogger(category: "ModelUseOffload")
             do {
                 return try await operation()
             } catch let error as LLMError {
-                guard case .transientError(let message) = error,
+                guard case .transientError(let message, _) = error,
                       attempt < maxRetries,
                       canRetry() else { throw error }
                 attempt += 1
@@ -299,7 +299,7 @@ private let logger = AppLogger(category: "ModelUseOffload")
             """
         case .unsupported:
             return ""
-        case .openAI, .openAIResponses, .openRouter, .xAI, .kimiCode:
+        case .openAI, .openAIResponses, .openRouter, .xAI, .kimiCode, .githubCopilot:
             let isImage25 = GPTImage25Support.matches(entry.model.id)
             let qualityHint = isImage25 ? "\"auto\" | \"low\" | \"medium\" | \"high\" | \"xhigh\" | \"max\"" : "\"standard\" | \"hd\""
             let exampleSize = isImage25 ? "1536x1024" : "1792x1024"
@@ -351,7 +351,14 @@ private let logger = AppLogger(category: "ModelUseOffload")
                                     streamFd: Int32) async throws -> [String: Any] {
         // 1. Resolve model entry
         let entry = try await resolveModelEntry(modelIdOrName, providerFilter: providerFilter)
-        let provider = try await LLMProviderFactory.makeProvider(for: entry)
+        // [T-opencode-session-header] A model_use call runs on behalf of the
+        // conversation whose shell invoked it; that session is already the
+        // source of truth elsewhere in this file (callerSid), so reuse it so an
+        // OpenCode request from a tool shares its parent conversation's id
+        // rather than silently omitting the header.
+        let provider = try await LLMProviderFactory.makeProvider(
+            for: entry,
+            sessionId: ISHExecutionCoordinator.mountedSessionIdSnapshot)
 
         // [T-model-use-passthrough-mode] Explicit passthrough envelope — the
         // raw-mode escape hatch. Parsed before message validation because
@@ -561,8 +568,10 @@ private let logger = AppLogger(category: "ModelUseOffload")
             let cliEndpointPreview = Self.parseEndpointOverride(inputJSON)?.rawValue ?? "<none>"
             logger.info("[ModelUseRoute] DECISION-INPUTS model=\(entry.model.id) modalities=[\(modalityList.joined(separator: ","))] instance=\(instance?.label ?? "<nil>") instanceCred=\(instance?.credentialType.rawValue ?? "<nil>") image_endpoint_mode=\(endpointModeStr) image_endpoint_resolved=\(endpointResolvedStr) cliEndpointOverride=\(cliEndpointPreview) providerIsOAuth=\(openAI.isOAuth) codexAccountIdPresent=\(openAI.codexAccountId != nil) customBaseURL=\(openAI.customBaseURL ?? "<nil>") forceResponsesAPI=\(openAI.forceResponsesAPI)")
 
-            // Codex OAuth image generation — scoped to known GPT image
-            // model so this is a pure additive branch with zero regression on
+            // Codex OAuth image generation — STRICTLY scoped to the Codex OAuth
+            // image models (gpt-image-2 and the 2.5 variants; see
+            // LLMModel.allCodexOAuthImageModelIDs)
+            // so this is a pure additive branch with zero regression on
             // normal OpenAI OAuth chat/responses flows (those models lack
             // .imageOutput and never reach this block anyway; the explicit
             // model-id gate makes the intent unambiguous). Generates via the
@@ -594,6 +603,12 @@ private let logger = AppLogger(category: "ModelUseOffload")
                     prompt: prompt,
                     inputImages: inputImages,
                     topLevelModel: topModel,
+                    // [T-codex-gpt-image25-variants] Pass the selected image
+                    // model explicitly. It would default to the provider's bound
+                    // `model.id` (the same value today), but naming it here keeps
+                    // the tool object tied to the entry the user picked rather
+                    // than to however the provider happens to be constructed.
+                    imageModel: entry.model.id,
                     size: imgConfig.size,
                     quality: imgConfig.quality
                 )

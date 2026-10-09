@@ -230,6 +230,28 @@ final class AudioSessionCoordinator {
 
     private var sessionActive = false
 
+    /// [T-voice-mic-preempted] Error from the most recent `apply()`, or nil if it
+    /// succeeded. Lets a caller that just ran `beginAndWait` tell "the session
+    /// never activated" (another app owns the mic — FaceTime, a phone call, a
+    /// Bluetooth device) apart from "activated fine but the input node still
+    /// reported 0 channels", which have completely different user-facing causes.
+    ///
+    /// Written on `sessionQueue` inside apply()'s catch and read from the main
+    /// actor after `beginAndWait`'s barrier, so it needs the same lock as
+    /// `pendingApplies` rather than actor isolation. Cleared at the START of
+    /// every apply so a stale failure can never be attributed to a later attempt.
+    /// Annotated exactly like `pendingApplies`/`pendingLock` below: the lock,
+    /// not actor isolation, is what makes these safe across the main actor and
+    /// `sessionQueue`.
+    nonisolated private static let lastApplyLock = NSLock()
+    nonisolated(unsafe) private static var _lastApplyError: Error?
+
+    /// The most recent activation failure, or nil if the last apply succeeded.
+    /// Only meaningful immediately after `beginAndWait` returns.
+    nonisolated static var lastApplyError: Error? {
+        lastApplyLock.withLock { _lastApplyError }
+    }
+
     private var highest: Intent? {
         if !captureTokens.isEmpty {
             return .capture
@@ -345,6 +367,9 @@ final class AudioSessionCoordinator {
         }
         let t0 = CFAbsoluteTimeGetCurrent()
         Self.sessionQueue.async {
+            // [T-voice-mic-preempted] Clear before attempting, so a success
+            // wipes any earlier failure and a reader can never see a stale one.
+            Self.lastApplyLock.withLock { Self._lastApplyError = nil }
             do {
                 if needsReconfig {
                     try session.setCategory(cat, mode: mode, options: opts)
@@ -362,6 +387,9 @@ final class AudioSessionCoordinator {
             } catch {
                 let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
                 log.error("[VoiceInputDebug][AudioSession] \(reason) apply FAILED after \(String(format: "%.0f", ms))ms: \(error.localizedDescription)")
+                // [T-voice-mic-preempted] Publish the reason so the capture path
+                // can report "mic busy" instead of a generic parse failure.
+                Self.lastApplyLock.withLock { Self._lastApplyError = error }
                 // Roll back the optimistic flag so the next begin() retries the
                 // activation instead of assuming the session is already live.
                 Self.pendingLock.withLock { Self.lastApplySucceeded = false }
