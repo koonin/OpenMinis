@@ -84,6 +84,27 @@ enum AuxiliaryUsageLedger {
 /// Pure policies shared by the runtime and standalone regression tests.
 enum AgentContextSupport {
     static let largeOutputPreviewCharacters = 6_000
+    static let skillOutputCharacters = 20_000
+
+    /// Only the entry document of a registered skill gets the larger budget.
+    /// Keep room for file_read's range header and resource link so the output
+    /// assembler cannot silently trim the last few lines a second time.
+    static func skillIdForRead(_ path: String, installedIds: Set<String>) -> String? {
+        let prefixes = ["/var/minis/skills/", "minis://skills/"]
+        guard let prefix = prefixes.first(where: { path.hasPrefix($0) }) else { return nil }
+        let parts = path.dropFirst(prefix.count).split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[1] == "SKILL.md", installedIds.contains(String(parts[0])) else { return nil }
+        return String(parts[0])
+    }
+
+    static func fileReadContentLimit(requested: Int?, isInstalledSkill: Bool, defaultLimit: Int) -> Int {
+        let cap = isInstalledSkill ? skillOutputCharacters - 512 : 80_000
+        return max(0, min(requested ?? (isInstalledSkill ? cap : defaultLimit), cap))
+    }
+
+    static func toolResultLimit(toolName: String, isInstalledSkill: Bool, defaultLimit: Int) -> Int {
+        toolName == "file_read" && isInstalledSkill ? skillOutputCharacters : defaultLimit
+    }
 
     /// Persist BEFORE trimming. On a write failure, keep the existing inline
     /// budget and never advertise a file which does not exist.

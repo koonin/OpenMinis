@@ -1518,13 +1518,20 @@ extension AIChatViewModel {
         }()
 
         // Persist full output before producing a bounded preview for the model.
+        let inlineLimit = AgentContextSupport.toolResultLimit(
+            toolName: tu.name,
+            isInstalledSkill: (toolArgs["path"] as? String).flatMap {
+                SkillStore.shared.skillIdFromPath($0)
+            } != nil,
+            defaultLimit: Self.kMaxToolResultChars
+        )
         var outputFilePath: String?
         var finalOutput: String
         if isOffloadReadback && toolOutput.count > Self.kMaxToolResultChars {
             finalOutput = String(toolOutput.prefix(Self.kMaxToolResultChars)) + "\n[OUTPUT TRUNCATED] Read the same file with the next_offset from its header; no new copy was created."
         } else {
             finalOutput = AgentContextSupport.toolOutput(
-            toolOutput, toolName: tu.name, inlineLimit: Self.kMaxToolResultChars
+            toolOutput, toolName: tu.name, inlineLimit: inlineLimit
         ) { fullOutput in
             let path = try offloadToolOutput(fullOutput, toolName: tu.name, toolId: tu.id).linuxPath
             outputFilePath = path

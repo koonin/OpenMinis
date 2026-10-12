@@ -1281,14 +1281,7 @@ Do not create extraneous files: README.md, INSTALLATION_GUIDE.md, CHANGELOG.md, 
     /// Extract skill ID from a Linux path like /var/minis/skills/<skillId>/SKILL.md.
     /// Only matches SKILL.md reads (the trigger for skill usage), not sub-resource reads.
     func skillIdFromPath(_ path: String) -> String? {
-        let prefix = "/var/minis/skills/"
-        guard path.hasPrefix(prefix) else { return nil }
-        let rest = String(path.dropFirst(prefix.count))
-        guard let slashIdx = rest.firstIndex(of: "/") else { return nil }
-        let candidate = String(rest[rest.startIndex..<slashIdx])
-        // Only count reads of SKILL.md itself
-        guard rest.hasSuffix("SKILL.md") else { return nil }
-        return skills.contains(where: { $0.id == candidate }) ? candidate : nil
+        AgentContextSupport.skillIdForRead(path, installedIds: Set(skills.map(\.id)))
     }
 
     // MARK: - Prompt Fragment (progressive disclosure: metadata only)

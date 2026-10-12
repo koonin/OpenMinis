@@ -48,6 +48,30 @@ struct AgentContextSupportTests {
         check(!failed.contains("saved to:"), "Never advertise a nonexistent file")
         check(failed.count < 15_500 && failed.contains("END"), "Failure retains a bounded head/tail preview")
 
+        // Reproduce the installed iCTRL manual: a 15,358-character read used
+        // to lose its last lines at the separate 15K tool-result cap.
+        let installed: Set<String> = ["ictrl-phone-control"]
+        for path in ["/var/minis/skills/ictrl-phone-control/SKILL.md", "minis://skills/ictrl-phone-control/SKILL.md"] {
+            check(AgentContextSupport.skillIdForRead(path, installedIds: installed) == "ictrl-phone-control", "Registered entry document")
+        }
+        for path in ["/var/minis/skills/missing/SKILL.md", "/var/minis/skills/ictrl-phone-control/references/SKILL.md", "/var/minis/skills/ictrl-phone-control/../SKILL.md", "/var/minis/workspace/SKILL.md"] {
+            check(AgentContextSupport.skillIdForRead(path, installedIds: installed) == nil, "Other files keep their normal budget")
+        }
+        let skillLimit = AgentContextSupport.toolResultLimit(toolName: "file_read", isInstalledSkill: true, defaultLimit: 15_000)
+        let manual = String(repeating: "x", count: 15_340) + "\nPROTOCOL AND END"
+        for requested in [nil, 100_000] as [Int?] {
+            let contentLimit = AgentContextSupport.fileReadContentLimit(requested: requested, isInstalledSkill: true, defaultLimit: 15_000)
+            check(contentLimit >= manual.count, "Default and explicit reads include the whole manual")
+            let result = AgentContextSupport.toolOutput(manual, toolName: "file_read", inlineLimit: skillLimit) { _ in
+                preconditionFailure("The installed manual must not require a second read")
+            }
+            check(result == manual, "The model receives the protocol at the end intact")
+            check(contentLimit + 512 <= skillLimit, "Larger manuals have room for a truthful paging header")
+        }
+        check(AgentContextSupport.toolResultLimit(toolName: "shell_execute", isInstalledSkill: true, defaultLimit: 15_000) == 15_000, "Shell output cannot opt into the skill exception")
+        check(AgentContextSupport.fileReadContentLimit(requested: 1_000_000, isInstalledSkill: false, defaultLimit: 15_000) == 80_000, "Ordinary files retain the hard read cap")
+        check(AgentContextSupport.fileReadContentLimit(requested: 1000, isInstalledSkill: true, defaultLimit: 15_000) == 1000, "Explicit short skill reads stay short")
+
         // Real SQLite persistence, including reload, repeated stream snapshots,
         // partial final events, independent retries and model attribution.
         let dbFile = dir.appendingPathComponent("usage.sqlite").path

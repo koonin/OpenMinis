@@ -407,9 +407,11 @@ extension AIChatViewModel {
         // when that 800 KB string later renders as a single message bubble.
         // Mirror the Android FileReadTool 80 KB cap so both platforms refuse
         // the same oversized reads regardless of the agent-supplied value.
-        let kMaxFileReadChars = 80_000
-        let requested = (dict["max_length"] as? Int) ?? Self.kMaxToolResultChars
-        let maxLength = min(requested, kMaxFileReadChars)
+        let maxLength = AgentContextSupport.fileReadContentLimit(
+            requested: dict["max_length"] as? Int,
+            isInstalledSkill: SkillStore.shared.skillIdFromPath(path) != nil,
+            defaultLimit: Self.kMaxToolResultChars
+        )
         let direction = (dict["direction"] as? String)?.lowercased() ?? "head"
 
         guard FileManager.default.fileExists(atPath: hostURL.path) else {
