@@ -124,15 +124,15 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
         self.id = id
         self.displayName = displayName
         self.provider = provider
-        let isAstra = GPT6AstraSupport.matches(id)
+        let hasVerifiedReasoningMetadata = GPT6AstraSupport.matchesAlwaysReasoningModel(id)
         self.modalityOverride = modalityOverride
             ?? (GPTImage25Support.matches(id) ? [.textInput, .imageInput, .imageOutput] : nil)
-            ?? (isAstra ? [.textInput, .imageInput, .textOutput] : nil)
-        self.contextWindow = contextWindow ?? (isAstra ? GPT6AstraSupport.contextWindow : nil)
-        self.maxOutputTokens = maxOutputTokens ?? (isAstra ? GPT6AstraSupport.maxOutputTokens : nil)
-        self.supportsReasoning = supportsReasoning ?? (isAstra ? true : nil)
+            ?? (hasVerifiedReasoningMetadata ? [.textInput, .imageInput, .textOutput] : nil)
+        self.contextWindow = contextWindow ?? (hasVerifiedReasoningMetadata ? GPT6AstraSupport.contextWindow : nil)
+        self.maxOutputTokens = maxOutputTokens ?? (hasVerifiedReasoningMetadata ? GPT6AstraSupport.maxOutputTokens : nil)
+        self.supportsReasoning = supportsReasoning ?? (hasVerifiedReasoningMetadata ? true : nil)
         self.interleavedReasoningField = interleavedReasoningField
-        self.reasoningEffortValues = reasoningEffortValues ?? (isAstra ? GPT6AstraSupport.effortValues : nil)
+        self.reasoningEffortValues = reasoningEffortValues ?? (hasVerifiedReasoningMetadata ? GPT6AstraSupport.effortValues : nil)
         self.declaresNoEffortTiers = declaresNoEffortTiers
     }
 
@@ -334,6 +334,11 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
         displayName: "GPT-6 Sol",
         provider: "OpenAI",
         supportsReasoning: true
+    )
+
+    /// Offline candidate only; successful account discovery remains authoritative.
+    static let gpt61Sol = LLMModel(
+        id: "gpt-6.1-sol", displayName: "GPT-6.1 Sol", provider: "OpenAI"
     )
 
     static let gpt6Luna = LLMModel(
@@ -572,7 +577,7 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
     /// to be tier-gated it will present as the empty-assistant-turn symptom
     /// described above; remove it rather than assuming the picker is broken.
     static let allOpenAICodexOAuth: [LLMModel] = [
-        .gpt6Astra, .gpt6Sol, .gpt6Luna,
+        .gpt6Astra, .gpt61Sol, .gpt6Sol, .gpt6Luna,
         .gpt56Sol, .gpt56Terra, .gpt56Luna,
         .gpt55, .gpt54, .gpt54Mini,
         // gptImage2 is kept: it is an image endpoint, not a Codex chat model,

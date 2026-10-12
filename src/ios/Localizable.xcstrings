@@ -6550,6 +6550,52 @@
         }
       }
     },
+    "Codex model refresh failed. The displayed list may be outdated; check your connection and try Refresh again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex model refresh failed. The displayed list may be outdated; check your connection and try Refresh again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 模型刷新失败，当前显示的是缓存或内置列表，可能缺少最新模型。请检查网络后重新刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 模型重新整理失敗，目前顯示的是快取或內建清單，可能缺少最新模型。請檢查網路後重試。"
+          }
+        }
+      }
+    },
+    "Codex returned no usable models. The displayed list may be outdated; account availability was not verified." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex returned no usable models. The displayed list may be outdated; account availability was not verified."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 未返回可用模型，当前显示的是缓存或内置列表，尚未确认账号是否可用。请稍后重新刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 未傳回可用模型，目前顯示的是快取或內建清單，尚未確認帳號是否可用。請稍後重試。"
+          }
+        }
+      }
+    },
     "Connect & Save" : {
       "extractionState" : "manual",
       "localizations" : {

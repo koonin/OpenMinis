@@ -271,13 +271,14 @@ if api.isEmpty {
           api.contains("https://chatgpt.com/backend-api/codex/models?client_version="))
     check("does NOT use the 403 /backend-api/models path",
           api.contains("\"https://chatgpt.com/backend-api/models"), false)
-    check("sends Minis' own originator, not the reporter's 'omp'",
-          api.contains("request.setValue(\"codex_cli_rs\", forHTTPHeaderField: \"Originator\")"))
+    check("uses the shared Codex headers, not the reporter's 'omp'",
+          api.contains("OpenAIProvider.applyCodexClientHeaders(to: &request)")
+            && provider.contains("request.setValue(\"codex_cli_rs\", forHTTPHeaderField: \"Originator\")"))
     check("no 'omp' originator anywhere", api.contains("\"omp\""), false)
     check("discovery reuses the inference client version",
           api.contains("OpenAIProvider.codexClientVersion"))
     check("auth failures are rethrown, not swallowed",
-          api.contains("if case .invalidAPIKey = error { throw error }"))
+          api.contains("if let llmError = error as? LLMError, case .invalidAPIKey = llmError { throw error }"))
     check("cache key includes account id and client version",
           api.contains("\"codex-oauth|\\(accountId ?? \"-\")|\\(OpenAIProvider.codexClientVersion)|\\(token)\""))
     check("forceRefresh bypasses the cache",
@@ -292,19 +293,25 @@ if api.isEmpty {
     check("append helper skips ids the endpoint already named",
           api.contains("&& !known.contains($0.id)"))
     check("call site passes instance + forceRefresh",
-          store.contains("fetchModelsOAuth(\n                instanceId: instance.id, forceRefresh: forceRefresh)"))
+          store.contains("fetchModelsOAuthResult(instanceId: instance.id, forceRefresh: forceRefresh)"))
     check("manual-token OAuth branch untouched",
           store.contains("loadOAuthString(instanceId: instance.id, account: \"manual-oauth-token\")"))
     // Requirement 6: the version must clear every gated model's
     // `minimal_client_version` — 0.153.0 for gpt-6-astra, 0.155.0 for
     // gpt-6-sol / gpt-6-luna [T-gpt6-sol-luna]. The field is a floor, so the
     // highest requirement wins.
-    check("client version is at least 0.155.x", provider.contains("codexClientVersion = \"0.155."))
+    let versionLine = provider.components(separatedBy: "\n").first { $0.contains("static let codexClientVersion =") } ?? ""
+    let version = versionLine.components(separatedBy: "\"").dropFirst().first ?? ""
+    check("client version clears the 0.155.0 floor",
+          version.compare("0.155.0", options: .numeric) != .orderedAscending)
 
     // [4c] drift guards — the tier ladder's SHAPE, not just its helpers.
     check("tier 1 returns the UNION, not the raw discovered list",
           api.contains("let models = appendBuiltInImageModels(to: discovered)")
-            && api.contains("return models"))
+            && api.contains("return .init(models: models, source: \"Codex backend\", warnings: [])"))
+    check("fallback warnings reach the result instead of being discarded",
+          api.contains("source: \"Codex last successful cache\", warnings: warnings")
+            && api.contains("source: \"Codex built-in candidates (availability unverified)\", warnings: warnings"))
     check("the raw merge result is never returned directly",
           api.contains("return discovered\n"), false)
     check("tiers 2+3 are built from the built-in list (which holds the image ids)",

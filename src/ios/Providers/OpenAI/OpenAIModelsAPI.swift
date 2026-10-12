@@ -58,9 +58,16 @@ enum OpenAIModelsAPI {
     ///   - forceRefresh: a manual "Refresh" must really re-fetch, so it bypasses
     ///     the cache rather than returning what is already on screen.
     static func fetchModelsOAuth(instanceId: String, forceRefresh: Bool = false) async throws -> [LLMModel] {
+        try await fetchModelsOAuthResult(instanceId: instanceId, forceRefresh: forceRefresh).models
+    }
+
+    /// Preserve discovery provenance so a failed manual refresh cannot look
+    /// like a successful backend fetch merely because an offline list exists.
+    static func fetchModelsOAuthResult(instanceId: String, forceRefresh: Bool = false) async throws -> ProviderConfigStore.ModelFetchResult {
         // Resolved once so the catch blocks can build the same cache key
         // without another main-actor hop (and without it being nil there).
         var resolvedAccountId: String?
+        var warnings: [String] = []
 
         // Tier 1 — the authoritative endpoint.
         do {
@@ -74,7 +81,7 @@ enum OpenAIModelsAPI {
 
             if !forceRefresh, let cached = OpenAIModelsCache.load(credential: cacheKey) {
                 logger.info("Codex discovery: returning \(cached.count) cached models")
-                return cached
+                return .init(models: cached, source: "Codex cache", warnings: [])
             }
 
             let fresh = try await fetchCodexBackendModels(token: token, accountId: accountId)
@@ -108,36 +115,40 @@ enum OpenAIModelsAPI {
                 // refresh can still serve this catalog after the token rotates.
                 OpenAIModelsCache.save(models, credential: lastKnownGoodKey(instanceId: instanceId, accountId: resolvedAccountId))
                 logger.info("Codex discovery: \(models.count) models from backend")
-                return models
+                return .init(models: models, source: "Codex backend", warnings: [])
             }
             // 200 with nothing usable — fall through rather than show an empty
             // picker, but do NOT treat it as an auth problem.
             logger.warning("Codex discovery: endpoint returned no usable models — falling back")
-        } catch let error as LLMError {
+            warnings.append(AppLocalized("Codex returned no usable models. The displayed list may be outdated; account availability was not verified."))
+        } catch {
             // [T-codex-model-discovery] An auth failure is reported as one.
             // Silently degrading to a stale/built-in list here would show the
             // user a healthy-looking catalog for an account that can no longer
             // call anything — the failure has to surface at refresh time.
-            if case .invalidAPIKey = error { throw error }
+            if let llmError = error as? LLMError, case .invalidAPIKey = llmError { throw error }
             logger.warning("Codex discovery failed (\(error.localizedDescription)) — falling back")
-            if let cached = OpenAIModelsCache.load(credential: lastKnownGoodKey(instanceId: instanceId, accountId: resolvedAccountId)) {
-                logger.info("Codex discovery: serving \(cached.count) previously cached models")
-                return cached
-            }
-        } catch {
-            logger.warning("Codex discovery failed (\(error.localizedDescription)) — falling back")
-            if let cached = OpenAIModelsCache.load(credential: lastKnownGoodKey(instanceId: instanceId, accountId: resolvedAccountId)) {
-                logger.info("Codex discovery: serving \(cached.count) previously cached models")
-                return cached
-            }
+            // Do not expose raw server bodies or credential-bearing URLs in
+            // the settings UI. Detailed diagnostics remain in the existing log.
+            warnings.append(AppLocalized("Codex model refresh failed. The displayed list may be outdated; check your connection and try Refresh again."))
         }
 
+        return codexFallbackResult(
+            cached: OpenAIModelsCache.load(credential: lastKnownGoodKey(instanceId: instanceId, accountId: resolvedAccountId)),
+            warnings: warnings)
+    }
+
+    static func codexFallbackResult(cached: [LLMModel]?, warnings: [String]) -> ProviderConfigStore.ModelFetchResult {
+        if let cached, !cached.isEmpty {
+            // Never union new chat candidates into an account-specific list.
+            return .init(models: cached, source: "Codex last successful cache", warnings: warnings)
+        }
         // Tiers 2 + 3 — models.dev metadata over the built-in ids. `enrichModels`
         // is exactly tier 2: it fills each built-in id from the models.dev
         // registry and leaves it as-is when there is no match.
         let enriched = ModelsDevAPI.enrichModels(LLMModel.allOpenAICodexOAuth)
         logger.info("Codex discovery: using built-in list (\(enriched.count) models, models.dev enriched)")
-        return enriched
+        return .init(models: enriched, source: "Codex built-in candidates (availability unverified)", warnings: warnings)
     }
 
     /// Combine endpoint truth with models.dev metadata.
@@ -202,19 +213,7 @@ enum OpenAIModelsAPI {
     /// be both dishonest and a good way to have the two disagree about which
     /// models are allowed.
     private static func fetchCodexBackendModels(token: String, accountId: String?) async throws -> [LLMModel] {
-        let version = OpenAIProvider.codexClientVersion
-        guard let url = URL(string: "https://chatgpt.com/backend-api/codex/models?client_version=\(version)") else {
-            throw LLMError.providerError(message: "Invalid Codex models URL")
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue(version, forHTTPHeaderField: "Version")
-        request.setValue("responses=experimental", forHTTPHeaderField: "Openai-Beta")
-        request.setValue("codex_cli_rs/\(version) (iOS; arm64)", forHTTPHeaderField: "User-Agent")
-        request.setValue("codex_cli_rs", forHTTPHeaderField: "Originator")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let accountId { request.setValue(accountId, forHTTPHeaderField: "Chatgpt-Account-Id") }
+        let request = try codexModelsRequest(token: token, accountId: accountId)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -228,6 +227,20 @@ enum OpenAIModelsAPI {
                 message: "Codex model discovery failed (HTTP \(status)): \(body.prefix(300))")
         }
         return parseCodexModels(data)
+    }
+
+    static func codexModelsRequest(token: String, accountId: String?) throws -> URLRequest {
+        let version = OpenAIProvider.codexClientVersion
+        guard let url = URL(string: "https://chatgpt.com/backend-api/codex/models?client_version=\(version)") else {
+            throw LLMError.providerError(message: "Invalid Codex models URL")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        OpenAIProvider.applyCodexClientHeaders(to: &request)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let accountId { request.setValue(accountId, forHTTPHeaderField: "Chatgpt-Account-Id") }
+        return request
     }
 
     /// Map the Codex catalogue onto `LLMModel`.
@@ -351,7 +364,7 @@ enum OpenAIModelsAPI {
                 ?? ((item["architecture"] as? [String: Any])?["output_modalities"] as? [String])
 
             var modality: ModelModality = (inputArr == nil && outputArr == nil) ? [.textInput, .textOutput] : []
-            if filterOpenAIOnly, inputArr == nil, outputArr == nil, GPT6AstraSupport.matches(id) {
+            if filterOpenAIOnly, inputArr == nil, outputArr == nil, GPT6AstraSupport.matchesAlwaysReasoningModel(id) {
                 modality = [.textInput, .imageInput, .textOutput]
             }
             if inputArr == nil, outputArr == nil, GPTImage25Support.matches(id) {

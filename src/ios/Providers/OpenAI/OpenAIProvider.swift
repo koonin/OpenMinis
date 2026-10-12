@@ -89,9 +89,9 @@ private func makeStreamingSession() -> URLSession {
 ///   - OAuth (Codex): Responses API at chatgpt.com/backend-api/codex/responses
 final class OpenAIProvider: LLMProvider {
     // Compatibility baseline for the Codex OAuth protocol adapter. Keep both
-    // request paths in sync; 0.144.1 is rejected for GPT-6 Astra as outdated.
-    // Official Astra-aware release: https://learn.chatgpt.com/docs/changelog
-    static let codexClientVersion = "0.155.0"
+    // discovery and inference in sync. 0.162.0 is the installed official client's
+    // observed GPT-6.1 Sol discovery version (not a claimed minimum version).
+    static let codexClientVersion = "0.162.0"
 
     static func applyCodexClientHeaders(to request: inout URLRequest) {
         request.setValue(codexClientVersion, forHTTPHeaderField: "Version")

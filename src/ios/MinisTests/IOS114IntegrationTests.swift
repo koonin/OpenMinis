@@ -35,6 +35,6 @@ final class IOS114IntegrationTests: XCTestCase {
 
     func testCodexUsesLiveDiscoveryAndNewClientBaseline() {
         XCTAssertTrue(ProviderType.openAI.oauthSupportsModelDiscovery)
-        XCTAssertEqual(OpenAIProvider.codexClientVersion, "0.155.0")
+        XCTAssertEqual(OpenAIProvider.codexClientVersion, "0.162.0")
     }
 }

@@ -3144,10 +3144,7 @@ final class ProviderConfigStore: ObservableObject {
         // Codex has its own account-scoped discovery endpoint (not /v1/models).
         if instance.providerType == .openAI, instance.credentialType == .oauth,
            ProviderKeychainHelper.loadOAuthString(instanceId: instance.id, account: "manual-oauth-token") == nil {
-            return ModelFetchResult(
-                models: try await OpenAIModelsAPI.fetchModelsOAuth(instanceId: instance.id, forceRefresh: forceRefresh),
-                source: "codex discovery (with offline fallback)", warnings: []
-            )
+            return try await OpenAIModelsAPI.fetchModelsOAuthResult(instanceId: instance.id, forceRefresh: forceRefresh)
         }
         var warnings: [String] = []
         let isThirdParty = isThirdPartyOpenAICompat(instance)

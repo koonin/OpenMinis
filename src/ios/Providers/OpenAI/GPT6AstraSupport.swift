@@ -14,9 +14,16 @@ enum GPT6AstraSupport {
         modelID.lowercased() == Self.modelID
     }
 
+    /// GPT-6.1 Sol shares Astra's always-reasoning Responses contract and
+    /// context/output limits. Keep exact matching; GPT-6 Sol/Luna allow none.
+    /// https://developers.openai.com/api/docs/models/gpt-6.1-sol
+    static func matchesAlwaysReasoningModel(_ modelID: String) -> Bool {
+        matches(modelID) || modelID.lowercased() == "gpt-6.1-sol"
+    }
+
     /// Do not silently switch third-party endpoints to an API they may not serve.
     static func requiresOfficialResponses(modelID: String, baseURL: String?, isAzure: Bool) -> Bool {
-        guard matches(modelID), !isAzure else { return false }
+        guard matchesAlwaysReasoningModel(modelID), !isAzure else { return false }
         guard let baseURL else { return true }
         guard let url = URL(string: baseURL), url.scheme == "https",
               url.host?.lowercased() == "api.openai.com" else { return false }
@@ -27,7 +34,7 @@ enum GPT6AstraSupport {
     /// OFF means the lowest supported effort for this always-reasoning model.
     /// Leave all other models and unrelated request fields untouched.
     static func prepare(_ body: inout [String: Any], modelID: String, responses: Bool) {
-        guard matches(modelID) else { return }
+        guard matchesAlwaysReasoningModel(modelID) else { return }
         for key in ["temperature", "top_p", "top_logprobs"] { body.removeValue(forKey: key) }
         if responses {
             if let include = body["include"] as? [String] {

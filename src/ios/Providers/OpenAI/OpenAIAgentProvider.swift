@@ -1100,7 +1100,7 @@ final class OpenAIAgentProvider: AgentProvider {
     /// is exactly the pre-fix behavior.
     static func explicitOffEffort(for provider: OpenAIProvider, model: LLMModel, level: ThinkingLevel) -> String? {
         guard !level.isEnabled else { return nil }
-        if GPT6AstraSupport.matches(model.id) { return "low" }
+        if GPT6AstraSupport.matchesAlwaysReasoningModel(model.id) { return "low" }
         if provider.customBaseURL == nil && !provider.isAzure { return "none" }
         let base = provider.customBaseURL?.lowercased() ?? ""
         let lid = model.id.lowercased()

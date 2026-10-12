@@ -2,7 +2,7 @@ import Foundation
 
 enum ThinkingLevelCatalog {
     private static let rules: [(match: (String) -> Bool, max: ThinkingLevel)] = [
-        ({ GPT6AstraSupport.matches($0) }, .max),
+        ({ GPT6AstraSupport.matchesAlwaysReasoningModel($0) }, .max),
         // GPT-5.6 sol/terra/luna all reach .max. (.ultra is a client-side
         // "Max + orchestration" concept — the wire effort tops out at "max",
         // reasoningEffort(for:level:) maps both .max and .ultra to "max".)
