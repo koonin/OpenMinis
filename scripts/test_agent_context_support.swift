@@ -13,6 +13,14 @@ struct AgentContextSupportTests {
             checks += 1
         }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let firstEnv = AgentContextSupport.shellEnvironment(["CUSTOM": "preserved", "MINIS_RETURN_URL": "minis://sessions/stale"], sessionId: "chat-A")
+        let secondEnv = AgentContextSupport.shellEnvironment(firstEnv, sessionId: "chat-B")
+        check(firstEnv["CUSTOM"] == "preserved", "Preserve custom environment entries")
+        check(firstEnv["MINIS_RETURN_URL"] == "minis://sessions/chat-A", "Override stale caller link with actual session")
+        check(secondEnv["MINIS_RETURN_URL"] == "minis://sessions/chat-B", "Concurrent chats get distinct return links")
+        for invalid in ["", "a/b", "a?send=message", "a\"", "a\n"] {
+            check(AgentContextSupport.shellEnvironment(firstEnv, sessionId: invalid)["MINIS_RETURN_URL"] == nil, "Invalid session IDs never become routing URLs")
+        }
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("full-output.txt")

@@ -86,6 +86,16 @@ enum AgentContextSupport {
     static let largeOutputPreviewCharacters = 6_000
     static let skillOutputCharacters = 20_000
 
+    /// Bind each shell invocation to its originating chat, never a global
+    /// "most recently active" session which can change during concurrent tasks.
+    static func shellEnvironment(_ custom: [String: String], sessionId: String) -> [String: String] {
+        var result = custom
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        let valid = !sessionId.isEmpty && sessionId.unicodeScalars.allSatisfy { allowed.contains($0) }
+        result["MINIS_RETURN_URL"] = valid ? "minis://sessions/\(sessionId)" : nil
+        return result
+    }
+
     /// Only the entry document of a registered skill gets the larger budget.
     /// Keep room for file_read's range header and resource link so the output
     /// assembler cannot silently trim the last few lines a second time.
