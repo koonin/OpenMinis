@@ -2557,6 +2557,7 @@ struct AIChatView: View {
             ThinkingLevelSheetView(
                 currentLevel: level,
                 availableLevels: vm.availableThinkingLevels,
+                minimumLevel: vm.minimumThinkingLevel,
                 onSelect: { newLevel in
                     vm.setThinkingLevel(newLevel)
                     showThinkingLevelSheet = false
@@ -4394,6 +4395,7 @@ struct AIChatView: View {
                                 memoryEnabled: vm.memoryEnabled,
                                 thinkingLevel: vm.currentThinkingLevel,
                                 thinkingSupported: supported,
+                                minimumThinkingLevel: vm.minimumThinkingLevel,
                                 availableLevels: vm.availableThinkingLevels,
                                 onSetThinkingLevel: supported ? { level in
                                     vm.setThinkingLevel(level)
@@ -4709,6 +4711,7 @@ struct AIChatView: View {
         let memoryEnabled: Bool
         var thinkingLevel: ThinkingLevel = .off
         var thinkingSupported: Bool = true
+        var minimumThinkingLevel: ThinkingLevel = .off
         var availableLevels: [ThinkingLevel] = ThinkingLevel.allCases
         var onSetThinkingLevel: ((ThinkingLevel) -> Void)?
         var onToggleThinking: (() -> Void)?
@@ -4736,7 +4739,8 @@ struct AIChatView: View {
                             ? .blue : (isSelected ? .white : ChatColors.primaryText)
                         let subtitleText = (cmd.id == "thinking" && !thinkingSupported)
                             ? AppLocalized("Not supported by current model")
-                            : cmd.subtitle
+                            : (cmd.id == "thinking" && minimumThinkingLevel.isEnabled
+                               ? AppLocalized("Reasoning cannot be turned off for this model or connection") : cmd.subtitle)
                         let subtitleColor: Color = (cmd.id == "thinking" && !thinkingSupported)
                             ? .secondary
                             : (isThinkingActive ? .blue.opacity(0.7) : (isSelected ? .white.opacity(0.7) : ChatColors.secondaryText))

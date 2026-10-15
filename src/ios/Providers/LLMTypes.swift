@@ -77,6 +77,10 @@ struct LLMModel: Equatable, Hashable, Identifiable, Sendable, Codable {
     /// nil = catalog says nothing; fall back to the legacy heuristics.
     var reasoningEffortValues: [String]?
 
+    /// Exact account-advertised Codex tiers, kept separate from models.dev's
+    /// potentially incomplete API catalog. Optional for old backups/configs.
+    var codexReasoningEffortValues: [String]?
+
     /// [OpenMinis#163] The catalog affirmatively declares NO effort tiers for
     /// this model — it reasons, but takes no `reasoning_effort` parameter.
     ///
@@ -1112,6 +1116,9 @@ enum ThinkingLevel: String, Codable, Hashable, CaseIterable, Comparable {
 
 extension LLMModel {
     var catalogMaxThinkingLevel: ThinkingLevel {
+        // Account metadata is complete for this connection; offline family
+        // rules must not invent tiers above its declared maximum.
+        if codexReasoningEffortValues != nil, let top = selectableThinkingLevels.last { return top }
         // A model that can't reason has max level .off regardless of any
         // catalog family rule — family rules match by id substring, so a
         // broadened rule (e.g. "mimo" covering mimo-v2.5) must not lift the
@@ -1165,7 +1172,7 @@ extension LLMModel {
     /// `.off` is never included — it is a separate toggle, not an effort tier,
     /// and the OFF wire value is chosen by `explicitOffEffort`, not here.
     var selectableThinkingLevels: [ThinkingLevel] {
-        guard let declared = reasoningEffortValues, !declared.isEmpty else { return [] }
+        guard let declared = codexReasoningEffortValues ?? reasoningEffortValues, !declared.isEmpty else { return [] }
         // Map each declared wire tier to the UI level that emits it. "none" and
         // "minimal" are OFF-ish tiers handled by the toggle, not the ladder.
         let mapping: [(wire: String, level: ThinkingLevel)] = [

@@ -1078,14 +1078,6 @@ struct ThinkingBlockView: View {
 
 struct TypingIndicator: View {
     @State private var dotOffsets: [Bool] = [false, false, false]
-    /// Live Soul name so the indicator reads "<custom name> is thinking…" when
-    /// the user has renamed the assistant in Soul settings. Updates via
-    /// `.soulMdChanged` Notification — same wiring used by `AssistantSoulName`.
-    @State private var soulName: String = {
-        let n = SoulStore.cachedMetadata.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return n.isEmpty ? "Minis" : n
-    }()
-
     var body: some View {
         // The thinking-level badge that used to trail this indicator was
         // removed — the nav-bar title (AIChatView.thinkingLevelBadge) is now
@@ -1093,15 +1085,12 @@ struct TypingIndicator: View {
         // duplicate here was redundant. ThinkingLevelSheetView is unchanged;
         // it's still presented from the nav-bar badge.
         HStack(spacing: 0) {
-            Text("\(soulName) is thinking")
+            // This is time-to-first-content, not a reasoning event.
+            Text(AppLocalized("Waiting for reply"))
             ForEach(0..<3, id: \.self) { i in
                 Text(".")
                     .offset(y: dotOffsets[i] ? -3 : 1)
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .soulMdChanged)) { _ in
-            let n = SoulStore.cachedMetadata.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            soulName = n.isEmpty ? "Minis" : n
         }
         .font(.system(size: 15, weight: .medium))
         .foregroundStyle(ChatColors.tertiaryText)
@@ -1125,15 +1114,22 @@ struct TypingIndicator: View {
 struct ThinkingLevelSheetView: View {
     let currentLevel: ThinkingLevel
     let availableLevels: [ThinkingLevel]
+    var minimumLevel: ThinkingLevel = .off
     let onSelect: (ThinkingLevel) -> Void
 
     var body: some View {
         NavigationStack {
             List {
-                thinkingRow(level: .off, isSelected: !currentLevel.isEnabled)
+                if minimumLevel == .off {
+                    thinkingRow(level: .off, isSelected: !currentLevel.isEnabled)
+                }
                 Section {
                     ForEach(availableLevels, id: \.self) { level in
                         thinkingRow(level: level, isSelected: currentLevel == level)
+                    }
+                } footer: {
+                    if minimumLevel.isEnabled {
+                        Text(AppLocalized("This model or connection cannot turn reasoning off. The lowest available intensity is used instead."))
                     }
                 }
             }
@@ -1151,7 +1147,9 @@ struct ThinkingLevelSheetView: View {
                     .resizable()
                     .frame(width: 16, height: 16)
                     .opacity(level == .off ? 0.4 : 1.0)
-                Text(level.displayName)
+                Text(level == minimumLevel && minimumLevel.isEnabled
+                     ? String(format: AppLocalized("%@ (minimum; cannot turn off)"), level.displayName)
+                     : level.displayName)
                     .foregroundStyle(.primary)
                 Spacer()
                 if isSelected {

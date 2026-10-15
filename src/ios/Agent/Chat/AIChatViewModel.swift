@@ -1434,6 +1434,14 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         return (pendingThinkingLevel ?? .off) != .off
     }
 
+    var minimumThinkingLevel: ThinkingLevel {
+        guard let entry = resolveCurrentEntry(),
+              let instance = ProviderConfigStore.shared.instance(for: entry.providerInstanceId),
+              instance.providerType == .openAI || instance.providerType == .openAIResponses else { return .off }
+        let isCodex = instance.providerType == .openAI && instance.credentialType == .oauth && instance.customBaseURL == nil
+        return ThinkingLevelCatalog.minimumLevel(for: entry.model, isCodexOAuth: isCodex)
+    }
+
     var availableThinkingLevels: [ThinkingLevel] {
         // [T-thinking-levels-data-driven] Offer one option per DISTINCT wire
         // tier the model declares, instead of every level below a ceiling.
@@ -1445,7 +1453,9 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         guard let entry = resolveCurrentEntry() else {
             return ThinkingLevel.allCases.filter { $0 != .off && $0 <= .xhigh }
         }
-        return entry.selectableThinkingLevels
+        let minimum = minimumThinkingLevel
+        return Array(Set(entry.selectableThinkingLevels + (minimum.isEnabled ? [minimum] : [])))
+            .filter { $0 >= minimum }.sorted()
     }
 
     /// Whether a model entry should expose the thinking toggle.
@@ -1549,14 +1559,13 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
         // availability: `nil` allowed, and custom-base OpenAI-compatible
         // providers also allowed even when explicitly `false`.
         let supported = Self.entryAllowsReasoning(entry, store: ProviderConfigStore.shared)
-        let cfg = ProviderConfigStore.shared.inferenceConfig(for: sid) ?? SessionInferenceConfig()
-        let enabled = cfg.thinkingEnabled
+        let thinkLvl = currentThinkingLevel
+        let enabled = thinkLvl.isEnabled
 
         let level: String
         if !enabled {
             level = "—"
         } else {
-            let thinkLvl = cfg.thinkingLevel
             switch instance.providerType {
             case .anthropic:
                 level = "budget: \(AnthropicAgentProvider.thinkingBudget(for: model, maxTokens: 64000, level: thinkLvl))"
@@ -7998,22 +8007,23 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// displayed level always matches what will actually be requested (the request
     /// path re-clamps per-model too — AgentProvider: min(level, catalogMax)).
     var currentThinkingLevel: ThinkingLevel {
-        let stored: ThinkingLevel = {
+        let requested: ThinkingLevel = {
             if let sid = sessionId, let cfg = ProviderConfigStore.shared.inferenceConfig(for: sid) {
                 return cfg.thinkingLevel
             }
             return pendingThinkingLevel ?? defaultGroupThinkingLevel
         }()
+        let stored = max(requested, minimumThinkingLevel)
         guard stored.isEnabled else { return stored }
         guard let entry = resolveCurrentEntry() else { return min(stored, .xhigh) }
-        let clamped = min(stored, entry.effectiveMaxThinkingLevel)
+        let clamped = max(minimumThinkingLevel, min(stored, entry.effectiveMaxThinkingLevel))
         // [T-thinking-levels-data-driven] The offered set can be SPARSE (a model
         // declaring ["high","max"] offers only High/Max), and a level persisted
         // before that was known — or carried over from another model — may not
         // be in it. Snap onto the nearest offered tier at or below, mirroring
         // `clampEffort`'s prefer-downgrade rule, so the pill and the checkmark
         // agree with the value actually sent.
-        let levels = entry.selectableThinkingLevels
+        let levels = availableThinkingLevels
         guard !levels.isEmpty, !levels.contains(clamped) else { return clamped }
         return levels.last(where: { $0 <= clamped }) ?? levels[0]
     }
@@ -8022,14 +8032,10 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// Returns `true` if a user-chosen level was written, so the caller can
     /// keep the group-default seeding (createInitialBinding) from clobbering it.
     ///
-    /// [T-first-msg-thinking-level-clobber] Note the `pending != .off` guard:
-    /// `.off` is indistinguishable from "unset" in SessionInferenceConfig, so a
-    /// user who explicitly picks Off before the first send still inherits the
-    /// group default. That pre-existing limitation is unchanged here — this fix
-    /// only stops a real (enabled) override from being overwritten.
+    /// An explicit Off is an override too; only nil means the user did not choose.
     @discardableResult
     func flushPendingThinkingLevel() -> Bool {
-        guard let pending = pendingThinkingLevel, pending != .off, let sid = sessionId else { return false }
+        guard let pending = pendingThinkingLevel, let sid = sessionId else { return false }
         var cfg = ProviderConfigStore.shared.inferenceConfig(for: sid) ?? SessionInferenceConfig()
         cfg.thinkingLevel = pending
         ProviderConfigStore.shared.setInferenceConfig(cfg, for: sid)

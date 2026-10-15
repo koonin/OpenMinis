@@ -66,6 +66,8 @@ final class OpenAIAgentProvider: AgentProvider {
         maxTokens: Int,
         thinkingLevel: ThinkingLevel
     ) async throws -> AsyncThrowingStream<AgentStreamEvent, Error> {
+        let isCodexOAuth = !provider.forceResponsesAPI && provider.isOAuth && provider.customBaseURL == nil
+        let thinkingLevel = ThinkingLevelCatalog.effectiveLevel(thinkingLevel, for: model, isCodexOAuth: isCodexOAuth)
         if provider.usesChatCompletionsAPI {
             return try await streamChatCompletions(messages: messages, systemPrompt: systemPrompt, tools: tools, maxTokens: maxTokens, thinkingLevel: thinkingLevel)
         } else {
@@ -589,30 +591,12 @@ final class OpenAIAgentProvider: AgentProvider {
         if provider.isMistral {
             // No reasoning key, and reasoningRequested stays false so the
             // encrypted-reasoning include below is skipped too.
-        } else if thinkingLevel.isEnabled, let effort = Self.reasoningEffort(for: model, level: thinkingLevel) {
-            // `summary: "auto"` opts in to streaming the human-readable
-            // reasoning summary (delivered as `response.reasoning_summary_text.delta`
-            // SSE events). Without it the Responses API only returns
-            // `encrypted_content`, so the UI has nothing to show except a
-            // token count. Safe to send to every Responses-flavor endpoint:
-            // OpenAI ignores unknown variants and falls back to "auto"-equiv.
-            body["reasoning"] = ["effort": effort, "summary": "auto"]
-            reasoningRequested = true
-        } else if isCodexOAuth {
-            // Codex requires a `reasoning` object on every request — fall back
-            // to "low" when the user has thinking off.
-            body["reasoning"] = ["effort": "low", "summary": "auto"]
-            reasoningRequested = true
-        } else if model.supportsReasoning ?? false,
-                  let offEffort = Self.explicitOffEffort(for: provider, model: model, level: thinkingLevel) {
-            // [T-thinking-off-explicit] Thinking OFF on a reasoning-capable
-            // model: send the explicit off tier instead of omitting the
-            // `reasoning` key — omission lets the vendor default kick in.
-            // Same ALLOWLIST as the Chat path (official OpenAI → "none",
-            // Volcano Ark → "minimal"); vendors with undocumented off
-            // semantics keep the historical omission. No summary/include:
-            // nothing should stream back.
-            body["reasoning"] = ["effort": offEffort]
+        } else if let reasoning = Self.responsesReasoningConfiguration(
+            for: model, level: thinkingLevel, isCodexOAuth: isCodexOAuth,
+            offEffort: Self.explicitOffEffort(for: provider, model: model, level: thinkingLevel)
+        ) {
+            body["reasoning"] = reasoning
+            reasoningRequested = reasoning["summary"] != nil || (isCodexOAuth && reasoning["effort"] != "none")
         }
         // Request the encrypted reasoning payload whenever reasoning is
         // requested. The `encrypted_content` is opaque + model-specific; we
@@ -1108,6 +1092,24 @@ final class OpenAIAgentProvider: AgentProvider {
             || lid.contains("seed-") || lid.contains("doubao") {
             return "minimal"
         }
+        return nil
+    }
+
+    /// Shared request builder, tested without sending user conversations or
+    /// consuming API credits. Effective Off never requests a reasoning summary.
+    static func responsesReasoningConfiguration(
+        for model: LLMModel, level: ThinkingLevel, isCodexOAuth: Bool, offEffort: String?
+    ) -> [String: String]? {
+        let effective = ThinkingLevelCatalog.effectiveLevel(level, for: model, isCodexOAuth: isCodexOAuth)
+        if effective.isEnabled {
+            let effort = isCodexOAuth ? (effective == .ultra ? "max" : effective.rawValue)
+                : reasoningEffort(for: model, level: effective)
+            if let effort { return ["effort": effort, "summary": "auto"] }
+        }
+        if isCodexOAuth {
+            return ["effort": ThinkingLevelCatalog.codexOffEffort(for: model)]
+        }
+        if model.supportsReasoning == true, let offEffort { return ["effort": offEffort] }
         return nil
     }
 

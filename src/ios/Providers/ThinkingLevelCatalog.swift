@@ -1,6 +1,37 @@
 import Foundation
 
 enum ThinkingLevelCatalog {
+    /// Keep the picker, legacy saved Off values and the Codex wire request in
+    /// agreement. Missing Codex metadata retains the historical Low fallback;
+    /// it must not masquerade as a verified ability to disable reasoning.
+    static func codexOffEffort(for model: LLMModel) -> String {
+        if let tiers = model.codexReasoningEffortValues, !tiers.isEmpty {
+            if tiers.contains("none"), !GPT6AstraSupport.matchesAlwaysReasoningModel(model.id) { return "none" }
+            return ["low", "medium", "high", "xhigh", "max"]
+                .first(where: { tiers.contains($0) }) ?? "low"
+        }
+        // API support for `none` is not proof of Codex support. For example,
+        // GPT-6 Sol/Luna's API accepts it, but the observed Codex catalog does
+        // not advertise it. Only the account endpoint may enable Off here.
+        return "low"
+    }
+
+    static func minimumLevel(for model: LLMModel, isCodexOAuth: Bool) -> ThinkingLevel {
+        guard isCodexOAuth else {
+            return GPT6AstraSupport.matchesAlwaysReasoningModel(model.id) ? .low : .off
+        }
+        let effort = codexOffEffort(for: model)
+        if effort == "none" { return .off }
+        return ThinkingLevel(rawValue: effort) ?? .low
+    }
+
+    static func effectiveLevel(_ requested: ThinkingLevel, for model: LLMModel, isCodexOAuth: Bool) -> ThinkingLevel {
+        let level = Swift.max(requested, minimumLevel(for: model, isCodexOAuth: isCodexOAuth))
+        guard isCodexOAuth, level.isEnabled, model.codexReasoningEffortValues != nil else { return level }
+        let levels = model.selectableThinkingLevels
+        return levels.last(where: { $0 <= level }) ?? levels.first ?? level
+    }
+
     private static let rules: [(match: (String) -> Bool, max: ThinkingLevel)] = [
         ({ GPT6AstraSupport.matchesAlwaysReasoningModel($0) }, .max),
         // GPT-5.6 sol/terra/luna all reach .max. (.ultra is a client-side

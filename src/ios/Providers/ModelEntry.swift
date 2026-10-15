@@ -245,6 +245,10 @@ struct ModelEntry: Identifiable, Codable, Hashable {
         // re-moded OpenRouter entry would fall back to the audio-bit rule.
         // [T-openrouter-voice-catalog]
         rebuilt.voiceRole = baseModel.voiceRole
+        rebuilt.reasoningEffortValues = baseModel.reasoningEffortValues
+        rebuilt.codexReasoningEffortValues = baseModel.codexReasoningEffortValues
+        rebuilt.declaresNoEffortTiers = baseModel.declaresNoEffortTiers
+        rebuilt.effortDeclarationIsAuthoritative = baseModel.effortDeclarationIsAuthoritative
         return rebuilt
     }
 
@@ -372,7 +376,7 @@ extension ModelEntry {
         // Extend the ladder up to the ceiling, keeping the declared tiers as a
         // floor so a sparse declaration still collapses the tiers BELOW its top
         // (its whole point: one option per distinct wire value).
-        if let declaredTop = declared.last, ceiling > declaredTop {
+        if model.codexReasoningEffortValues == nil, let declaredTop = declared.last, ceiling > declaredTop {
             let above = ThinkingLevel.allCases.filter { $0 != .off && $0 > declaredTop && $0 <= ceiling }
             return capped + above
         }

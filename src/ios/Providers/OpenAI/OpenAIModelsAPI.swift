@@ -165,6 +165,10 @@ enum OpenAIModelsAPI {
             if authoritative.maxOutputTokens != nil { merged.maxOutputTokens = authoritative.maxOutputTokens }
             if authoritative.supportsReasoning != nil { merged.supportsReasoning = authoritative.supportsReasoning }
             if authoritative.modalityOverride != nil { merged.modalityOverride = authoritative.modalityOverride }
+            if let tiers = authoritative.codexReasoningEffortValues {
+                merged.codexReasoningEffortValues = tiers
+                merged.reasoningEffortValues = tiers
+            }
             // Mutate in place rather than rebuilding: `LLMModel` also carries
             // effort-tier fields that only models.dev knows about, and a
             // re-`init` with the arguments we happen to remember would silently
@@ -297,6 +301,16 @@ enum OpenAIModelsAPI {
             if let reasoning = (item["supports_reasoning"] as? Bool)
                 ?? (item["reasoning"] as? Bool) {
                 model.supportsReasoning = reasoning
+            }
+            let rawTiers = (item["supported_reasoning_levels"] as? [[String: Any]])?
+                .compactMap { $0["effort"] as? String }
+                ?? (item["supported_reasoning_levels"] as? [String]) ?? []
+            let knownTiers = Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+            let tiers = rawTiers.map { $0.lowercased() }.filter { knownTiers.contains($0) }
+            if !tiers.isEmpty {
+                model.codexReasoningEffortValues = tiers
+                model.reasoningEffortValues = tiers
+                model.supportsReasoning = tiers.contains { $0 != "none" }
             }
             return model
         }
