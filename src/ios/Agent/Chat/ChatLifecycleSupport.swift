@@ -237,6 +237,12 @@ final class KeepScreenAwakeController {
     private var foregroundObserver: NSObjectProtocol?
     private var lockHeld = false
     private var appInBackground = false
+    private var deviceConnectionActive = false
+
+    func setDeviceConnectionActive(_ active: Bool) {
+        deviceConnectionActive = active
+        refresh(reason: "device-connection")
+    }
 
     private init() {}
 
@@ -309,9 +315,9 @@ final class KeepScreenAwakeController {
         //   - nothing is running
         //   - app went to background (system will sleep us anyway; we just
         //     want to not hold a stale lock)
-        let shouldHoldLock = enabled && hasRunningTask && !appInBackground
+        let shouldHoldLock = ((enabled && hasRunningTask) || deviceConnectionActive) && !appInBackground
 
-        guard shouldHoldLock != lockHeld else {
+        guard shouldHoldLock != lockHeld || shouldHoldLock != UIApplication.shared.isIdleTimerDisabled else {
             logger.debug("[KeepScreen] noop reason=\(reason) sessions=\(sessionCount) enabled=\(enabled) bg=\(self.appInBackground) held=\(self.lockHeld)")
             return
         }

@@ -33,6 +33,8 @@ enum ProgrammaticPromptOrigin: Equatable {
     case cli
     /// An App Intent (Shortcuts / Siri).
     case shortcut
+    /// A paired local voice device, submitted through its dedicated service.
+    case device
     /// An `AgentJobRegistry` job (scheduled trigger, helper completion, …).
     case job(jobId: String)
 
@@ -40,6 +42,7 @@ enum ProgrammaticPromptOrigin: Equatable {
         switch self {
         case .cli: return "cli"
         case .shortcut: return "shortcut"
+        case .device: return "device"
         case .job(let id): return "job:\(id.prefix(8))"
         }
     }

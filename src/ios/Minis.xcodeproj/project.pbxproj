@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		001C817B087A4356DE5EE090 /* XiaozhiAudioCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62CCA0B302BB8F01537D4F30 /* XiaozhiAudioCodec.swift */; };
+		25582F07385ADE0BE3C85C83 /* XiaozhiDeviceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B67D6540694B957068A6B2 /* XiaozhiDeviceService.swift */; };
+		20EE8471F66C5A8B695E5BB8 /* XiaozhiDeviceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68BA0B5277D62904C7DEF7B /* XiaozhiDeviceSettingsView.swift */; };
+		DF5F017548B81B50D79F1DE1 /* XiaozhiLANServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75382DD9A263D1BD3BB0D4E /* XiaozhiLANServer.swift */; };
+		D3E09AA3FBBFEC52A595E3F8 /* XiaozhiPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF11894C4C405FABFDBDE29 /* XiaozhiPairing.swift */; };
+		05C42C045B7ABCECC4CC1F58 /* XiaozhiProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC62DE34C0414E83359FE271 /* XiaozhiProtocol.swift */; };
+		66175BB79D472F068DF45E43 /* XiaozhiVoiceCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = E911EAE1376C6CFB0D6142E1 /* XiaozhiVoiceCapture.swift */; };
 		21FED4B7BB6F6D9476C9992E /* VoiceProvider+System.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88993FC8E3F0199C6638F664 /* VoiceProvider+System.swift */; };
 		241D530017827D7F0EB604DE /* VoiceProviderFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2941B643B8A2F048A2B154E /* VoiceProviderFactory.swift */; };
 		2A4FD49F872431D703328384 /* VoiceOutputPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424510790AF3FB2452D3CCE3 /* VoiceOutputPlayer.swift */; };
@@ -647,6 +654,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		62CCA0B302BB8F01537D4F30 /* XiaozhiAudioCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiAudioCodec.swift; sourceTree = "<group>"; };
+		10B67D6540694B957068A6B2 /* XiaozhiDeviceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiDeviceService.swift; sourceTree = "<group>"; };
+		A68BA0B5277D62904C7DEF7B /* XiaozhiDeviceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiDeviceSettingsView.swift; sourceTree = "<group>"; };
+		A75382DD9A263D1BD3BB0D4E /* XiaozhiLANServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiLANServer.swift; sourceTree = "<group>"; };
+		ABF11894C4C405FABFDBDE29 /* XiaozhiPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiPairing.swift; sourceTree = "<group>"; };
+		AC62DE34C0414E83359FE271 /* XiaozhiProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiProtocol.swift; sourceTree = "<group>"; };
+		E911EAE1376C6CFB0D6142E1 /* XiaozhiVoiceCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiVoiceCapture.swift; sourceTree = "<group>"; };
 		0ED149397BEA7E0408C92688 /* GroupVoiceModelsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GroupVoiceModelsView.swift; sourceTree = "<group>"; };
 		0F5379380323FA8C6477708C /* GroupSlotPicker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GroupSlotPicker.swift; sourceTree = "<group>"; };
 		16FF3462D09402F14B610CD6 /* VoiceWaveformView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceWaveformView.swift; sourceTree = "<group>"; };
@@ -1486,6 +1500,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		3A718A4641F485EE28543258 /* Xiaozhi */ = {
+			isa = PBXGroup;
+			children = (
+				62CCA0B302BB8F01537D4F30 /* XiaozhiAudioCodec.swift */,
+				10B67D6540694B957068A6B2 /* XiaozhiDeviceService.swift */,
+				A68BA0B5277D62904C7DEF7B /* XiaozhiDeviceSettingsView.swift */,
+				A75382DD9A263D1BD3BB0D4E /* XiaozhiLANServer.swift */,
+				ABF11894C4C405FABFDBDE29 /* XiaozhiPairing.swift */,
+				AC62DE34C0414E83359FE271 /* XiaozhiProtocol.swift */,
+				E911EAE1376C6CFB0D6142E1 /* XiaozhiVoiceCapture.swift */,
+			);
+			path = Devices/Xiaozhi;
+			sourceTree = "<group>";
+		};
 		42A3821DABA8773E8A5BA57E /* Voice */ = {
 			isa = PBXGroup;
 			children = (
@@ -1664,6 +1692,7 @@
 		E51000031 /* Minis */ = {
 			isa = PBXGroup;
 			children = (
+				3A718A4641F485EE28543258 /* Xiaozhi */,
 				E51000011 /* MinisApp.swift */,
 				E5QA0102 /* AppDelegate.swift */,
 				E5E000018 /* Minis.entitlements */,
@@ -2945,6 +2974,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				001C817B087A4356DE5EE090 /* XiaozhiAudioCodec.swift in Sources */,
+				25582F07385ADE0BE3C85C83 /* XiaozhiDeviceService.swift in Sources */,
+				20EE8471F66C5A8B695E5BB8 /* XiaozhiDeviceSettingsView.swift in Sources */,
+				DF5F017548B81B50D79F1DE1 /* XiaozhiLANServer.swift in Sources */,
+				D3E09AA3FBBFEC52A595E3F8 /* XiaozhiPairing.swift in Sources */,
+				05C42C045B7ABCECC4CC1F58 /* XiaozhiProtocol.swift in Sources */,
+				66175BB79D472F068DF45E43 /* XiaozhiVoiceCapture.swift in Sources */,
 				AC0000202 /* ProviderCustomizationGenerated.swift in Sources */,
 				E54000AC1 /* DebugSkillGenerated.swift in Sources */,
 				E5FP00100 /* AppGroupChangeWatcher.swift in Sources */,
@@ -3776,7 +3812,7 @@
 				);
 				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "小冠";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "VM requires network access for SLIRP networking";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Minis uses the local network to connect paired XiaoZhi devices and local services.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = "Launch Screen";
@@ -3831,7 +3867,7 @@
 				);
 				INFOPLIST_FILE = "$(SRCROOT)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "小冠";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "VM requires network access for SLIRP networking";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Minis uses the local network to connect paired XiaoZhi devices and local services.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = "Launch Screen";

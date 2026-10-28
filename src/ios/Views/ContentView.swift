@@ -1803,6 +1803,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openSessionFromIntent)) { note in
             guard let sessionId = (note.userInfo as? [String: String])?["sessionId"] else { return }
+            if note.userInfo?["source"] as? String == "xiaozhi" { activeToolSheet = nil }
             // [T-notification-tap-vs-launch-session] Warm path owns this
             // navigation: drop the cold-launch buffer copy and stamp the
             // handling time so an in-flight launch `.task` (the post can land
@@ -2439,7 +2440,7 @@ struct ContentView: View {
                         SyncCore.shared.isAppInBackground = false
                     }
                     #if DEBUG
-                    UIApplication.shared.isIdleTimerDisabled = keepScreenAwake
+                    UIApplication.shared.isIdleTimerDisabled = keepScreenAwake || XiaozhiDeviceService.shared.isRunning
                     #endif
                     // [T-home-fab-keyboard-inset] Defense-in-depth behind the
                     // structural .ignoresSafeArea immunity on the session lists:
@@ -3973,7 +3974,7 @@ struct ContentView: View {
                     // state. Memory-only (not persisted). DEBUG builds only.
                     Button {
                         keepScreenAwake.toggle()
-                        UIApplication.shared.isIdleTimerDisabled = keepScreenAwake
+                        UIApplication.shared.isIdleTimerDisabled = keepScreenAwake || XiaozhiDeviceService.shared.isRunning
                     } label: {
                         Label("Keep Screen Awake", systemImage: keepScreenAwake ? "checkmark.circle.fill" : "sun.max")
                     }
@@ -8230,6 +8231,17 @@ private struct SettingsSheet: View {
                                 .background(.indigo, in: Circle())
                         }
                     }
+                }
+
+                Section {
+                    NavigationLink {
+                        XiaozhiDeviceSettingsView()
+                    } label: {
+                        Label("小智设备", systemImage: "hifispeaker.fill")
+                    }
+                    .accessibilityIdentifier("settings.xiaozhiDevice")
+                } header: {
+                    Text("设备")
                 }
 
                 Section("Agent Runtime") {

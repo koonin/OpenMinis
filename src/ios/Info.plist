@@ -217,7 +217,7 @@
 	<key>NSHomeKitUsageDescription</key>
 	<string>Minis uses HomeKit access so the AI agent can query and control your smart home accessories on your behalf.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Minis uses local network access for the debug server and to let the AI agent communicate with locally-hosted services.</string>
+	<string>Minis uses the local network to connect paired XiaoZhi devices and local services.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Minis uses background location to keep agent tasks running when the app is in the background. Location data is only used to record session connection history.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

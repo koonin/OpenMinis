@@ -491,6 +491,14 @@ struct MinisApp: App {
     // MARK: - Lifecycle Logging
 
     private func handleScenePhaseChange(_ phase: ScenePhase) {
+        if phase == .active {
+            Task { @MainActor in
+                await Task.yield()
+                XiaozhiDeviceService.shared.foregroundChanged(true)
+            }
+        } else if phase == .background {
+            XiaozhiDeviceService.shared.foregroundChanged(false)
+        }
         switch phase {
         case .active:
             let remaining = UIApplication.shared.backgroundTimeRemaining

@@ -2144,10 +2144,15 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
 
     /// Whether reply TTS may speak right now: enabled AND the mic isn't capturing
     /// (capture and playback are mutually exclusive — no echo / session fight).
+    /// Scoped by the local device service while a device-originated turn runs.
+    /// The reply is synthesized for the device without also speaking on iPhone.
+    var routesReplyToDevice = false
+
     private var canSpeakNow: Bool {
         // Enabled AND not muted AND not capturing. `canPlay` folds in the temporary
         // mute (capsule speaker) on top of the full on/off `isEnabled`.
         !isDelegatedWorkerSession
+            && !routesReplyToDevice
             && VoiceOutputState.shared.canPlay
             && !VoiceModePreference.shared.isCapturing
     }
