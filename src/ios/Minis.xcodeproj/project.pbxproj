@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BCDE2F79904244E4BF7C4868 /* SoulRoleTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DE470BB8B44433EA710AE0E /* SoulRoleTemplate.swift */; };
+		1BDD23C9043F4215BD389F10 /* SoulRoleTemplatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DEED683EC854DD6999E649E /* SoulRoleTemplatesView.swift */; };
 		E35A490045434A7BAC959E86 /* XiaozhiVoicePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CC63D73810A402A8A6443DC /* XiaozhiVoicePicker.swift */; };
 		BBFC7BE67B3044CA86902E04 /* XiaozhiVoiceChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38B06BAE99014AC2BBB743C6 /* XiaozhiVoiceChoice.swift */; };
 		7FB4FC82BDA648DCBCA76F5A /* DoubaoVoiceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF25A4BBBA649818A3B4637 /* DoubaoVoiceCatalog.swift */; };
@@ -662,6 +664,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		2DE470BB8B44433EA710AE0E /* SoulRoleTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulRoleTemplate.swift; sourceTree = "<group>"; };
+		6DEED683EC854DD6999E649E /* SoulRoleTemplatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulRoleTemplatesView.swift; sourceTree = "<group>"; };
 		5CC63D73810A402A8A6443DC /* XiaozhiVoicePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiVoicePicker.swift; sourceTree = "<group>"; };
 		38B06BAE99014AC2BBB743C6 /* XiaozhiVoiceChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiVoiceChoice.swift; sourceTree = "<group>"; };
 		EDF25A4BBBA649818A3B4637 /* DoubaoVoiceCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoVoiceCatalog.swift; sourceTree = "<group>"; };
@@ -2549,6 +2553,8 @@
 				E5SHV0103 /* SharedFoldersSettingsView.swift */,
 				E5SHV0104 /* MountDetailView.swift */,
 				E5SOUL102 /* SoulSettingsView.swift */,
+				2DE470BB8B44433EA710AE0E /* SoulRoleTemplate.swift */,
+				6DEED683EC854DD6999E649E /* SoulRoleTemplatesView.swift */,
 				E5SCH0014 /* HelperSettingsView.swift */,
 				E5TLS0011 /* ToolsSettingsView.swift */,
 				E5LOCK102 /* FaceIDProtectionSettingsView.swift */,
@@ -3354,6 +3360,8 @@
 				E5LOCK001 /* SessionLockStore.swift in Sources */,
 				E5SOUL001 /* SoulStore.swift in Sources */,
 				E5SOUL002 /* SoulSettingsView.swift in Sources */,
+				BCDE2F79904244E4BF7C4868 /* SoulRoleTemplate.swift in Sources */,
+				1BDD23C9043F4215BD389F10 /* SoulRoleTemplatesView.swift in Sources */,
 				E5LOCK002 /* FaceIDProtectionSettingsView.swift in Sources */,
 				E5LOCK003 /* AppLockOverlay.swift in Sources */,
 				E5N0000042F3B941A00049557 /* MemoryManagementView.swift in Sources */,

@@ -21,6 +21,7 @@ struct SoulSettingsView: View {
     @State private var style: String = SoulMetadata.default.style
     @State private var lang: String = SoulMetadata.default.lang
     @State private var bodyText: String = ""
+    @State private var showRoleTemplates = false
     @State private var saveError: String? = nil
     @State private var didJustSave: Bool = false
     @State private var showRestoreConfirm: Bool = false
@@ -45,6 +46,24 @@ struct SoulSettingsView: View {
                 previewCard
             }
 
+            Section {
+                Button { showRoleTemplates = true } label: {
+                    HStack {
+                        Text(AppLocalized("Role Templates"))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: true, vertical: false)
+                        Spacer()
+                        Text(SoulRoleTemplate.matching(style: style, body: bodyText)?.name ?? AppLocalized("Custom"))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                }
+                .accessibilityIdentifier("soul.roleTemplates")
+            } footer: {
+                Text(AppLocalized("One personality for phone chats and XiaoZhi conversations. Choose a template or write your own, then save. Voice is selected separately."))
+            }
+
             Section(AppLocalized("Identity")) {
                 LabeledContent(AppLocalized("Name")) {
                     TextField("Minis", text: $name)
@@ -66,7 +85,7 @@ struct SoulSettingsView: View {
             Section {
                 personalityEditor
             } header: {
-                Text(AppLocalized("Personality Prompt"))
+                Text(AppLocalized("Role Description"))
             } footer: {
                 bodyLengthFooter
             }
@@ -117,6 +136,9 @@ struct SoulSettingsView: View {
             }
         }
         .onAppear(perform: reload)
+        .sheet(isPresented: $showRoleTemplates) {
+            SoulRoleTemplatesView(style: $style, bodyText: $bodyText)
+        }
         // Using .alert (not .confirmationDialog) so the dialog stays
         // centered on iPad / Mac. confirmationDialog without a source
         // rect renders as a popover anchored to the screen's top edge
