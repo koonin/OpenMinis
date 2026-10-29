@@ -7,6 +7,41 @@ enum XiaozhiError: LocalizedError {
     }
 }
 
+/// Monotonic durations only; never stores recordings or conversation text.
+struct XiaozhiReplyTiming {
+    var recognition: TimeInterval = 0
+    var model: TimeInterval = 0
+    var voice: TimeInterval = 0
+    var preparation: TimeInterval = 0
+    var modelName = ""
+    var total: TimeInterval { recognition + model + voice + preparation }
+}
+
+/// Fixed device clock with a small jitter buffer. Network send time must not
+/// accumulate on top of every 60 ms frame. Rebase after a long stall so catch-up
+/// never floods the device's bounded decode queue.
+struct XiaozhiPlaybackClock {
+    static let frame: TimeInterval = 0.060
+    static let prefill = 4
+    private var anchor: TimeInterval
+
+    init(now: TimeInterval) { anchor = now }
+
+    mutating func deadline(for packet: Int, now: TimeInterval) -> TimeInterval {
+        let offset = Double(max(0, packet - Self.prefill + 1)) * Self.frame
+        let target = anchor + offset
+        if now - target > Double(Self.prefill) * Self.frame {
+            anchor = now - offset
+            return now
+        }
+        return target
+    }
+
+    func drainDeadline(packetCount: Int) -> TimeInterval {
+        anchor + Double(packetCount) * Self.frame
+    }
+}
+
 enum XiaozhiProtocol {
     static let sampleRate = 16_000
     static let frameSamples = 960
@@ -18,7 +53,7 @@ enum XiaozhiProtocol {
 
     static func validHello(_ value: [String: Any]) -> Bool {
         guard value["type"] as? String == "hello", value["version"] as? Int == 1,
-              value["transport"] as? String == "websocket",
+              value["transport"] as? String == "bluetooth",
               let audio = value["audio_params"] as? [String: Any] else { return false }
         return audio["format"] as? String == "opus" && audio["sample_rate"] as? Int == sampleRate
             && audio["channels"] as? Int == 1 && audio["frame_duration"] as? Int == 60
@@ -69,45 +104,5 @@ enum XiaozhiProtocol {
         append(UInt16(2)); append(UInt16(16)); output.append(Data("data".utf8))
         append(UInt32(pcm.count)); output.append(pcm)
         return output
-    }
-}
-
-/// Only the small, bounded provisioning HTTP request is parsed here. WebSocket
-/// framing/upgrade/ping/fragmentation are handled by Network.framework.
-struct XiaozhiHTTPRequest {
-    let method: String
-    let path: String
-    let headers: [String: String]
-
-    static func parse(_ bytes: Data) throws -> XiaozhiHTTPRequest? {
-        guard bytes.count <= 73_728 else { throw XiaozhiError.message("配置请求过大") }
-        guard let end = bytes.range(of: Data("\r\n\r\n".utf8)) else {
-            if bytes.count > 8192 { throw XiaozhiError.message("配置请求头过大") }
-            return nil
-        }
-        guard end.upperBound <= 8192,
-              let header = String(data: bytes[..<end.lowerBound], encoding: .utf8) else {
-            throw XiaozhiError.message("配置请求格式错误")
-        }
-        let lines = header.components(separatedBy: "\r\n")
-        let first = lines[0].split(separator: " ", omittingEmptySubsequences: false)
-        guard first.count == 3, first[2] == "HTTP/1.1" || first[2] == "HTTP/1.0" else {
-            throw XiaozhiError.message("配置请求格式错误")
-        }
-        var headers: [String: String] = [:]
-        for line in lines.dropFirst() {
-            guard let colon = line.firstIndex(of: ":") else { throw XiaozhiError.message("请求头格式错误") }
-            let name = String(line[..<colon]).lowercased()
-            guard !name.isEmpty, !name.contains(where: { $0.isWhitespace }), headers[name] == nil else {
-                throw XiaozhiError.message("重复或无效的请求头")
-            }
-            headers[name] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-        }
-        guard headers["transfer-encoding"] == nil,
-              let length = Int(headers["content-length"] ?? "0"), (0...65_536).contains(length) else {
-            throw XiaozhiError.message("不支持该配置请求编码")
-        }
-        guard bytes.count >= end.upperBound + length else { return nil }
-        return Self(method: String(first[0]), path: String(first[1]), headers: headers)
     }
 }

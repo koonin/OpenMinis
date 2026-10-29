@@ -143,6 +143,9 @@ struct MinisApp: App {
         // [T-voice-input-mode-preference-ios] Pin the lazy static to the real
         // launch instant.
         _ = Self.processLaunchedAt
+        // Recreate the Core Bluetooth restoration manager even when iOS launches
+        // us for accessory activity without bringing a scene to the foreground.
+        XiaozhiDeviceService.shared.restoreAccessoryIfNeeded()
         #if DEBUG
         try? debugServer.start(port: 8321)
         #endif

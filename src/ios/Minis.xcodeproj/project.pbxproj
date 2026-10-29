@@ -7,10 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E35A490045434A7BAC959E86 /* XiaozhiVoicePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CC63D73810A402A8A6443DC /* XiaozhiVoicePicker.swift */; };
+		BBFC7BE67B3044CA86902E04 /* XiaozhiVoiceChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38B06BAE99014AC2BBB743C6 /* XiaozhiVoiceChoice.swift */; };
+		7FB4FC82BDA648DCBCA76F5A /* DoubaoVoiceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF25A4BBBA649818A3B4637 /* DoubaoVoiceCatalog.swift */; };
+		12BA6875A7EB418DBD17FEE2 /* XiaozhiVolcanoSpeech.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA963A0568064F30B1F70ED0 /* XiaozhiVolcanoSpeech.swift */; };
+		1B76D1DCC0F349E79D30ECCC /* XiaozhiConsoleRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D49566D372314174A23A737E /* XiaozhiConsoleRelay.swift */; };
+		AE46C31A4F22454EA6850AA3 /* XiaozhiConsoleReplyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C5CE26010A049F4BD5DE097 /* XiaozhiConsoleReplyGate.swift */; };
 		001C817B087A4356DE5EE090 /* XiaozhiAudioCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62CCA0B302BB8F01537D4F30 /* XiaozhiAudioCodec.swift */; };
 		25582F07385ADE0BE3C85C83 /* XiaozhiDeviceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B67D6540694B957068A6B2 /* XiaozhiDeviceService.swift */; };
 		20EE8471F66C5A8B695E5BB8 /* XiaozhiDeviceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68BA0B5277D62904C7DEF7B /* XiaozhiDeviceSettingsView.swift */; };
-		DF5F017548B81B50D79F1DE1 /* XiaozhiLANServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75382DD9A263D1BD3BB0D4E /* XiaozhiLANServer.swift */; };
+		DF5F017548B81B50D79F1DE1 /* XiaozhiBluetoothProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75382DD9A263D1BD3BB0D4E /* XiaozhiBluetoothProtocol.swift */; };
 		D3E09AA3FBBFEC52A595E3F8 /* XiaozhiPairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABF11894C4C405FABFDBDE29 /* XiaozhiPairing.swift */; };
 		05C42C045B7ABCECC4CC1F58 /* XiaozhiProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC62DE34C0414E83359FE271 /* XiaozhiProtocol.swift */; };
 		66175BB79D472F068DF45E43 /* XiaozhiVoiceCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = E911EAE1376C6CFB0D6142E1 /* XiaozhiVoiceCapture.swift */; };
@@ -570,6 +576,8 @@
 		RCL000121 /* BackupHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = RCL000221 /* BackupHUD.swift */; };
 		C02900010000000000000001 /* AgentContextSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02900010000000000000003 /* AgentContextSupport.swift */; };
 		C02900010000000000000002 /* AgentContextSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02900010000000000000003 /* AgentContextSupport.swift */; };
+		B201BCE73DFF60F6DE022405 /* XiaozhiVoicePreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E1FAC9BB4F2124F0D3B3ECE /* XiaozhiVoicePreferences.swift */; };
+		D82703070EB96F5CC92AC26D /* XiaozhiBluetoothTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED60BDDA213FBCC1843200E /* XiaozhiBluetoothTransport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -654,10 +662,16 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		5CC63D73810A402A8A6443DC /* XiaozhiVoicePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiVoicePicker.swift; sourceTree = "<group>"; };
+		38B06BAE99014AC2BBB743C6 /* XiaozhiVoiceChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiVoiceChoice.swift; sourceTree = "<group>"; };
+		EDF25A4BBBA649818A3B4637 /* DoubaoVoiceCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoVoiceCatalog.swift; sourceTree = "<group>"; };
+		BA963A0568064F30B1F70ED0 /* XiaozhiVolcanoSpeech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiVolcanoSpeech.swift; sourceTree = "<group>"; };
+		D49566D372314174A23A737E /* XiaozhiConsoleRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiConsoleRelay.swift; sourceTree = "<group>"; };
+		5C5CE26010A049F4BD5DE097 /* XiaozhiConsoleReplyGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiConsoleReplyGate.swift; sourceTree = "<group>"; };
 		62CCA0B302BB8F01537D4F30 /* XiaozhiAudioCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiAudioCodec.swift; sourceTree = "<group>"; };
 		10B67D6540694B957068A6B2 /* XiaozhiDeviceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiDeviceService.swift; sourceTree = "<group>"; };
 		A68BA0B5277D62904C7DEF7B /* XiaozhiDeviceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiDeviceSettingsView.swift; sourceTree = "<group>"; };
-		A75382DD9A263D1BD3BB0D4E /* XiaozhiLANServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiLANServer.swift; sourceTree = "<group>"; };
+		A75382DD9A263D1BD3BB0D4E /* XiaozhiBluetoothProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiBluetoothProtocol.swift; sourceTree = "<group>"; };
 		ABF11894C4C405FABFDBDE29 /* XiaozhiPairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiPairing.swift; sourceTree = "<group>"; };
 		AC62DE34C0414E83359FE271 /* XiaozhiProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiProtocol.swift; sourceTree = "<group>"; };
 		E911EAE1376C6CFB0D6142E1 /* XiaozhiVoiceCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiVoiceCapture.swift; sourceTree = "<group>"; };
@@ -1298,6 +1312,8 @@
 		RCL000220 /* BackupCategoryIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupCategoryIcon.swift; sourceTree = "<group>"; };
 		RCL000221 /* BackupHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupHUD.swift; sourceTree = "<group>"; };
 		C02900010000000000000003 /* AgentContextSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentContextSupport.swift; sourceTree = "<group>"; };
+		9E1FAC9BB4F2124F0D3B3ECE /* XiaozhiVoicePreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiVoicePreferences.swift; sourceTree = "<group>"; };
+		1ED60BDDA213FBCC1843200E /* XiaozhiBluetoothTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiBluetoothTransport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -1506,9 +1522,16 @@
 				62CCA0B302BB8F01537D4F30 /* XiaozhiAudioCodec.swift */,
 				10B67D6540694B957068A6B2 /* XiaozhiDeviceService.swift */,
 				A68BA0B5277D62904C7DEF7B /* XiaozhiDeviceSettingsView.swift */,
-				A75382DD9A263D1BD3BB0D4E /* XiaozhiLANServer.swift */,
+				A75382DD9A263D1BD3BB0D4E /* XiaozhiBluetoothProtocol.swift */,
 				ABF11894C4C405FABFDBDE29 /* XiaozhiPairing.swift */,
 				AC62DE34C0414E83359FE271 /* XiaozhiProtocol.swift */,
+				9E1FAC9BB4F2124F0D3B3ECE /* XiaozhiVoicePreferences.swift */,
+				5CC63D73810A402A8A6443DC /* XiaozhiVoicePicker.swift */,
+				38B06BAE99014AC2BBB743C6 /* XiaozhiVoiceChoice.swift */,
+				D49566D372314174A23A737E /* XiaozhiConsoleRelay.swift */,
+				BA963A0568064F30B1F70ED0 /* XiaozhiVolcanoSpeech.swift */,
+				5C5CE26010A049F4BD5DE097 /* XiaozhiConsoleReplyGate.swift */,
+				1ED60BDDA213FBCC1843200E /* XiaozhiBluetoothTransport.swift */,
 				E911EAE1376C6CFB0D6142E1 /* XiaozhiVoiceCapture.swift */,
 			);
 			path = Devices/Xiaozhi;
@@ -1531,6 +1554,7 @@
 				B7E2CB0D0D63E6D6FDB45568 /* VoiceActivityDetector.swift */,
 				424510790AF3FB2452D3CCE3 /* VoiceOutputPlayer.swift */,
 				5F3D1138DBE516F31D76ABF4 /* VoiceProviderTemplate.swift */,
+				EDF25A4BBBA649818A3B4637 /* DoubaoVoiceCatalog.swift */,
 				28E23EA0E199D6D50EBC76F2 /* VoiceLog.swift */,
 				DE154CF628D8699BD99CF9CB /* AudioSessionCoordinator.swift */,
 				D7656F4130247E4002A3AC0C /* VoiceTextSanitizer.swift */,
@@ -2977,9 +3001,16 @@
 				001C817B087A4356DE5EE090 /* XiaozhiAudioCodec.swift in Sources */,
 				25582F07385ADE0BE3C85C83 /* XiaozhiDeviceService.swift in Sources */,
 				20EE8471F66C5A8B695E5BB8 /* XiaozhiDeviceSettingsView.swift in Sources */,
-				DF5F017548B81B50D79F1DE1 /* XiaozhiLANServer.swift in Sources */,
+				DF5F017548B81B50D79F1DE1 /* XiaozhiBluetoothProtocol.swift in Sources */,
 				D3E09AA3FBBFEC52A595E3F8 /* XiaozhiPairing.swift in Sources */,
 				05C42C045B7ABCECC4CC1F58 /* XiaozhiProtocol.swift in Sources */,
+				B201BCE73DFF60F6DE022405 /* XiaozhiVoicePreferences.swift in Sources */,
+				E35A490045434A7BAC959E86 /* XiaozhiVoicePicker.swift in Sources */,
+				BBFC7BE67B3044CA86902E04 /* XiaozhiVoiceChoice.swift in Sources */,
+				1B76D1DCC0F349E79D30ECCC /* XiaozhiConsoleRelay.swift in Sources */,
+				12BA6875A7EB418DBD17FEE2 /* XiaozhiVolcanoSpeech.swift in Sources */,
+				AE46C31A4F22454EA6850AA3 /* XiaozhiConsoleReplyGate.swift in Sources */,
+				D82703070EB96F5CC92AC26D /* XiaozhiBluetoothTransport.swift in Sources */,
 				66175BB79D472F068DF45E43 /* XiaozhiVoiceCapture.swift in Sources */,
 				AC0000202 /* ProviderCustomizationGenerated.swift in Sources */,
 				E54000AC1 /* DebugSkillGenerated.swift in Sources */,
@@ -3437,6 +3468,7 @@
 				77BB9741AB0EFC449FDBDFED /* VoiceWaveformView.swift in Sources */,
 				38F28509AFBC2153A7C85E85 /* VoiceInputPanel.swift in Sources */,
 				30390D7AA90818BD4BDCE784 /* VoiceProviderTemplate.swift in Sources */,
+				7FB4FC82BDA648DCBCA76F5A /* DoubaoVoiceCatalog.swift in Sources */,
 				5EF8347C1EAA0066EFF631F8 /* GroupVoiceModelsView.swift in Sources */,
 				52F76965817EDFB2E37E8220 /* InlineVoiceInputView.swift in Sources */,
 				4123A4B6761EBBE587AE11C6 /* GroupSlotPicker.swift in Sources */,

@@ -367,9 +367,15 @@ struct ProviderInstanceDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     // Source info (green)
                     if let source = fetchSource {
-                        Label("Loaded from \(source)", systemImage: "checkmark.circle")
-                            .font(.caption)
-                            .foregroundStyle(.green)
+                        if source == "voice-catalog" {
+                            Text("已加载内置音色列表；可用音色以试听结果为准")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Label("Loaded from \(source)", systemImage: "checkmark.circle")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
                     }
                     // Warnings (yellow) — diagnostic tips for each fallback step
                     ForEach(fetchWarnings, id: \.self) { warning in

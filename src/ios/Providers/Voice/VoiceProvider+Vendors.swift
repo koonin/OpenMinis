@@ -167,9 +167,15 @@ final class MiniMaxVoiceProvider: VoiceProvider {
     override func defaultVoiceOutputVoice() -> String { "female-shaonv" }
 }
 
-// MARK: - Doubao / Volcano (TTS + ASR, two-credential auth, distinct formats)
+// MARK: - Doubao / Volcano (TTS + ASR, v3 API-key auth, distinct formats)
 
 final class DoubaoVoiceProvider: VoiceProvider {
+    private static let defaultOutputVoice = "zh_female_cancan_uranus_bigtts"
+
+    static func synthesisResourceID(for voice: String) -> String {
+        let speaker = voice.hasPrefix("seed-tts-") ? defaultOutputVoice : voice
+        return speaker.contains("_uranus_") || speaker.hasPrefix("saturn_") ? "seed-tts-2.0" : "seed-tts-1.0"
+    }
 
     init(providerId: String, apiKey: String?) {
         super.init(providerId: providerId,
@@ -187,33 +193,41 @@ final class DoubaoVoiceProvider: VoiceProvider {
     override func voiceOutputEndpointPath() -> String { "/api/v3/tts/unidirectional" }
 
     override func buildVoiceOutputRequest(_ request: VoiceOutputRequest) throws -> URLRequest {
+        try makeOutputRequest(request, format: request.responseFormat == .wav ? "wav" : "mp3", sampleRate: 24000)
+    }
+
+    func buildPCMStreamRequest(_ request: VoiceOutputRequest) throws -> URLRequest {
+        try makeOutputRequest(request, format: "pcm", sampleRate: 16000)
+    }
+
+    private func makeOutputRequest(_ request: VoiceOutputRequest, format: String, sampleRate: Int) throws -> URLRequest {
         let urlStr = composedURLString(path: voiceOutputEndpointPath())
         guard let url = URL(string: urlStr) else {
             throw VoiceProviderError.parseError("Invalid URL: \(urlStr)")
         }
         let raw = request.model ?? request.voice ?? defaultVoiceOutputVoice()
         let speaker = raw.hasPrefix("seed-tts-") ? defaultVoiceOutputVoice() : raw
-        let resourceId: String
-        if speaker.contains("_uranus_") || speaker.hasPrefix("saturn_") {
-            resourceId = "seed-tts-2.0"
-        } else {
-            resourceId = "seed-tts-1.0"
-        }
+        let resourceId = Self.synthesisResourceID(for: speaker)
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue(resourceId, forHTTPHeaderField: "X-Api-Resource-Id")
         urlRequest.setValue("keep-alive", forHTTPHeaderField: "Connection")
+        urlRequest.setValue(UUID().uuidString, forHTTPHeaderField: "X-Api-Request-Id")
         applyVoiceAuth(&urlRequest)
 
+        // Volcano uses a percentage offset: 0 is 1x, -50 is 0.5x, 100 is 2x.
+        let speed = request.speed.flatMap { $0.isFinite ? $0 : nil } ?? 1
+        let speechRate = Int(((min(2, max(0.5, speed)) - 1) * 100).rounded())
         let body: [String: Any] = [
             "req_params": [
                 "text": request.input,
                 "speaker": speaker,
                 "audio_params": [
-                    "format": request.responseFormat == .wav ? "wav" : "mp3",
-                    "sample_rate": 24000
+                    "format": format,
+                    "sample_rate": sampleRate,
+                    "speech_rate": speechRate
                 ]
             ]
         ]
@@ -286,8 +300,8 @@ final class DoubaoVoiceProvider: VoiceProvider {
     }
 
     override func defaultVoiceInputModel() -> String  { "bigmodel" }
-    override func defaultVoiceOutputModel() -> String { "zh_female_cancan_uranus_bigtts" }
-    override func defaultVoiceOutputVoice() -> String { "zh_female_cancan_uranus_bigtts" }
+    override func defaultVoiceOutputModel() -> String { Self.defaultOutputVoice }
+    override func defaultVoiceOutputVoice() -> String { Self.defaultOutputVoice }
 }
 
 // MARK: - iFlytek / Xunfei (ASR with HMAC-SHA256 signed URL)

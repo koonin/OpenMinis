@@ -422,10 +422,12 @@ final class SystemVoiceProvider: NSObject, VoiceInputCapable, VoiceOutputCapable
             ?? AVSpeechSynthesisVoice(language: "zh-CN")
     }
 
-    /// AVSpeechUtterance rate is 0.0...1.0; map from OpenAI-style speed 0.25...4.0.
+    /// A multiplier of one means Apple's natural speaking rate. Dividing by
+    /// four made the default half-speed, stretching pauses in device replies.
     private func mapSpeed(_ speed: Float) -> Float {
-        let normalized = max(0.0625, min(1.0, speed / 4.0))  // 0.25..4.0 -> ~0.06..1.0
-        return normalized * AVSpeechUtteranceMaximumSpeechRate
+        let multiplier = speed.isFinite ? max(0.25, min(4.0, speed)) : 1.0
+        return min(AVSpeechUtteranceMaximumSpeechRate,
+                   max(AVSpeechUtteranceMinimumSpeechRate, AVSpeechUtteranceDefaultSpeechRate * multiplier))
     }
 }
 

@@ -199,7 +199,7 @@
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Minis uses media library access so the AI agent can search your music library and control playback on your behalf.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Minis uses Bluetooth so the AI agent can scan for, connect to, and communicate with nearby BLE devices on your behalf.</string>
+	<string>Minis uses Bluetooth to exchange voice with paired XiaoZhi devices, including when the screen is locked, and to communicate with nearby BLE devices on your behalf.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Minis uses Bluetooth so the AI agent can scan for, connect to, and communicate with nearby BLE devices on your behalf.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
@@ -240,10 +240,14 @@
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>bluetooth-central</string>
 		<string>audio</string>
 		<string>fetch</string>
 		<string>location</string>
 		<string>remote-notification</string>
+	</array>
+	<key>NSBonjourServices</key>
+	<array>
 	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>

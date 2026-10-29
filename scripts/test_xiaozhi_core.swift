@@ -1,4 +1,4 @@
-// Build with the four platform-only Xiaozhi protocol/audio/pairing/LAN files.
+// Build with the platform-only Xiaozhi protocol/audio/pairing files.
 // Uses synthetic pairing credentials and generated audio; never calls a model.
 import Foundation
 
@@ -11,22 +11,7 @@ struct XiaozhiCoreTests {
         }
         let pairing = XiaozhiPairing(setupToken: String(repeating: "a", count: 48),
                                     deviceToken: String(repeating: "b", count: 48))
-        let store = XiaozhiPairingStore(pairing: pairing, save: { _ in })
-        if CommandLine.arguments.contains("--serve") {
-            var server: XiaozhiLANServer!
-            server = XiaozhiLANServer(pairing: store, host: "127.0.0.1", httpPort: 18765, voicePort: 18766) { event in
-                switch event {
-                case .ready: print("READY"); fflush(stdout)
-                case .failed(let error): print(error); fflush(stdout)
-                case .message(let id, let data, let binary):
-                    Task { try? await server.send(data, binary: binary, to: id) }
-                default: break
-                }
-            }
-            try server.start()
-            try await Task.sleep(nanoseconds: 60_000_000_000)
-            server.stop(); return
-        }
+        check(pairing.discoveryName == "openminis-97daac0ee9998dfc", "stable migrated pairing identity")
         check(XiaozhiProtocol.deviceID("AA:BB:CC:00:01:02") == "aa:bb:cc:00:01:02", "normalize MAC")
         check(XiaozhiProtocol.deviceID("aa:bb:cc:00:01:02\n") == nil, "reject malformed MAC")
         check(!XiaozhiProtocol.equalSecret("中文", "secret"), "non-ASCII secret mismatch")
@@ -35,26 +20,24 @@ struct XiaozhiCoreTests {
         check(!XiaozhiProtocol.is60msMonoOpus(Data([0x1c, 0])), "stereo refused")
         check(!XiaozhiProtocol.is60msMonoOpus(Data([0xf8, 0])), "20 ms refused")
         check(!XiaozhiProtocol.is60msMonoOpus(Data([0xfb])), "missing frame count refused")
-        let request = Data("POST /ota/test HTTP/1.1\r\nContent-Length: 2\r\nDevice-Id: aa:bb:cc:00:01:02\r\n\r\n{}".utf8)
-        check(try XiaozhiHTTPRequest.parse(request.dropLast()) == nil, "wait for body")
-        check(try XiaozhiHTTPRequest.parse(request)?.headers["device-id"] == "aa:bb:cc:00:01:02", "parse request")
-        for bad in ["GET / HTTP/1.1\r\nContent-Length: -1\r\n\r\n",
-                    "GET / HTTP/1.1\r\nContent-Length: 0\r\ncontent-length: 1\r\n\r\nx",
-                    "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"] {
-            do { _ = try XiaozhiHTTPRequest.parse(Data(bad.utf8)); preconditionFailure("bad HTTP accepted") }
-            catch { checks += 1 }
+        let hello: [String: Any] = ["type": "hello", "version": 1, "transport": "bluetooth", "audio_params": XiaozhiProtocol.audioParameters]
+        check(XiaozhiProtocol.validHello(hello), "Bluetooth audio negotiation")
+        var legacyHello = hello; legacyHello["transport"] = "websocket"
+        check(!XiaozhiProtocol.validHello(legacyHello), "removed LAN transport refused")
+        // Ten seconds of variable network overhead must not stretch device
+        // playback. A pause must rebase without sending an unbounded backlog.
+        var clock = XiaozhiPlaybackClock(now: 0)
+        var now: TimeInterval = 0
+        for index in 0..<167 {
+            now = max(now, clock.deadline(for: index, now: now))
+            now += [0.004, 0.012, 0.025][index % 3]
         }
-        check(try store.bind(deviceID: "aa:bb:cc:00:01:02", setupToken: pairing.setupToken), "first device binds")
-        check(try !store.bind(deviceID: "aa:bb:cc:00:01:03", setupToken: pairing.setupToken), "second device refused")
-        let headers = [(name: "Device-Id", value: "aa:bb:cc:00:01:02"),
-                       (name: "Protocol-Version", value: "1"),
-                       (name: "Authorization", value: "Bearer " + pairing.deviceToken)]
-        check(store.authenticates(headers), "paired device authenticates")
-        check(!store.authenticates(headers + [headers[2]]), "duplicate auth rejected")
-        let rejectingStore = XiaozhiPairingStore(pairing: pairing, save: { _ in throw XiaozhiError.message("storage failure") })
-        do { _ = try rejectingStore.bind(deviceID: "aa:bb:cc:00:01:02", setupToken: pairing.setupToken) }
-        catch { checks += 1 }
-        check(rejectingStore.snapshot.deviceID == nil, "failed persistence does not bind")
+        check(now < 10.02, "network overhead does not accumulate per frame")
+        check(clock.drainDeadline(packetCount: 167) >= now, "buffer drains before stop")
+        now += 2
+        let resumed = clock.deadline(for: 167, now: now)
+        check(abs(resumed - now) < 0.001, "long stall rebases device clock")
+        check(clock.deadline(for: 168, now: now) >= now + 0.059, "no flood after stalled send")
         let codec = try XiaozhiAudioCodec()
         print("Protocol and pairing checks passed; checking audio"); fflush(stdout)
         var pcm = Data()

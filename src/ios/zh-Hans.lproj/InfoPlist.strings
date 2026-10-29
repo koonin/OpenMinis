@@ -18,3 +18,4 @@
 "NSHomeKitUsageDescription" = "Minis 需要访问 HomeKit，以便 AI 智能体代您查询和控制智能家居设备。";
 "NSAlarmKitUsageDescription" = "Minis 使用闹钟功能，以便 AI 智能体代您设置闹钟和计时器。";
 "NSLocalNetworkUsageDescription" = "小冠需要访问本地网络，以连接你配对的小智设备和局域网服务。";
+"NSBluetoothAlwaysUsageDescription" = "小冠使用蓝牙连接已配对的小智，直接传输语音并在锁屏时唤醒对话，并与你选择的蓝牙设备通信。";

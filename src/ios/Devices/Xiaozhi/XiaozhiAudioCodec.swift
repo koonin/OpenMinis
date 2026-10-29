@@ -136,3 +136,116 @@ final class XiaozhiAudioCodec {
         return packets
     }
 }
+
+/// One encoder for the entire PCM stream. Chunk boundaries never flush Opus
+/// lookahead; only the explicit successful end-of-stream flushes its tail.
+/// Actor ownership keeps codec work off the UI and serializes all input.
+actor XiaozhiStreamingEncoder {
+    private var encoder: AVAudioConverter?
+    private var pcmFormat: AVAudioFormat?
+    private var opusFormat: AVAudioFormat?
+    private var pending = Data()
+    private var totalBytes = 0
+    private var totalPackets = 0
+    private var finished = false
+
+    func append(_ data: Data) throws -> [Data] {
+        guard !finished, totalBytes + data.count <= 90 * 16_000 * 2 else {
+            throw XiaozhiError.message("语音流已结束或超过时长限制")
+        }
+        totalBytes += data.count
+        pending.append(data)
+        return try convert(final: false)
+    }
+
+    func finish() throws -> [Data] {
+        guard !finished, totalBytes > 0, totalBytes % 2 == 0 else {
+            throw XiaozhiError.message("语音流为空、不完整或已经结束")
+        }
+        finished = true
+        return try convert(final: true)
+    }
+
+    private func convert(final: Bool) throws -> [Data] {
+        if encoder == nil {
+            var description = AudioStreamBasicDescription(
+                mSampleRate: 16_000, mFormatID: kAudioFormatOpus, mFormatFlags: 0,
+                mBytesPerPacket: 0, mFramesPerPacket: 960, mBytesPerFrame: 0,
+                mChannelsPerFrame: 1, mBitsPerChannel: 0, mReserved: 0)
+            guard let pcm = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000,
+                                          channels: 1, interleaved: true),
+                  let opus = AVAudioFormat(streamDescription: &description),
+                  let converter = AVAudioConverter(from: pcm, to: opus) else {
+                throw XiaozhiError.message("无法初始化流式声音编码")
+            }
+            converter.bitRate = 24_000
+            pcmFormat = pcm; opusFormat = opus; encoder = converter
+        }
+        guard let encoder, let pcmFormat, let opusFormat else { throw XiaozhiError.message("声音编码器不可用") }
+        let output = AVAudioCompressedBuffer(format: opusFormat, packetCapacity: 16, maximumPacketSize: 1275)
+        let input = XiaozhiPCMInput(data: pending, format: pcmFormat, final: final)
+        defer { pending.removeFirst(input.consumed) }
+        var packets: [Data] = []
+        while true {
+            var failure: NSError?
+            let status = encoder.convert(to: output, error: &failure) { requested, state in
+                input.read(requested, state: state)
+            }
+            guard !input.failed, failure == nil, status != .error else {
+                throw XiaozhiError.message("流式声音编码失败")
+            }
+            for index in 0..<Int(output.packetCount) {
+                guard let description = output.packetDescriptions?[index],
+                      description.mDataByteSize > 0, description.mDataByteSize <= 1275 else {
+                    throw XiaozhiError.message("流式声音帧无效")
+                }
+                let packet = Data(bytes: output.data.advanced(by: Int(description.mStartOffset)),
+                                  count: Int(description.mDataByteSize))
+                guard XiaozhiProtocol.is60msMonoOpus(packet), totalPackets < 1502 else {
+                    throw XiaozhiError.message("流式声音帧格式或时长异常")
+                }
+                packets.append(packet); totalPackets += 1
+            }
+            if status == .endOfStream || status == .inputRanDry || output.packetCount == 0 { break }
+        }
+        return packets
+    }
+}
+
+/// AudioConverter's callback is Sendable. Its cursor is independent of actor
+/// state and protected even if the converter invokes it on another thread.
+private final class XiaozhiPCMInput: @unchecked Sendable {
+    private let data: Data
+    private let format: AVAudioFormat
+    private let final: Bool
+    private let lock = NSLock()
+    private var offset = 0
+    private var inputFailed = false
+    var consumed: Int { lock.lock(); defer { lock.unlock() }; return offset }
+    var failed: Bool { lock.lock(); defer { lock.unlock() }; return inputFailed }
+
+    init(data: Data, format: AVAudioFormat, final: Bool) {
+        self.data = data; self.format = format; self.final = final
+    }
+
+    func read(_ requested: UInt32, state: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
+        lock.lock(); defer { lock.unlock() }
+        let available = (data.count - offset) / 2
+        guard available > 0 else {
+            state.pointee = final ? .endOfStream : .noDataNow
+            return nil
+        }
+        let count = min(Int(requested), available)
+        guard count > 0, let input = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)),
+              let samples = input.int16ChannelData?[0] else {
+            inputFailed = true; state.pointee = .noDataNow; return nil
+        }
+        input.frameLength = AVAudioFrameCount(count)
+        data.withUnsafeBytes { raw in
+            if let base = raw.baseAddress { memcpy(samples, base.advanced(by: offset), count * 2) }
+        }
+        offset += count * 2
+        state.pointee = .haveData
+        return input
+    }
+}

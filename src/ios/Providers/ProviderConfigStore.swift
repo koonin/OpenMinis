@@ -3050,7 +3050,7 @@ final class ProviderConfigStore: ObservableObject {
     /// Result of a model fetch with fallback — includes diagnostic warnings for each step.
     struct ModelFetchResult {
         let models: [LLMModel]
-        let source: String            // "api", "models.dev", or "none"
+        let source: String            // "api", "models.dev", "voice-catalog", or "none"
         let warnings: [String]        // Diagnostic messages from each failed step
     }
 
@@ -3141,6 +3141,15 @@ final class ProviderConfigStore: ObservableObject {
     /// Fetch models from the provider API, falling back to models.dev when the API
     /// returns an empty list or fails (e.g. custom base URL without /v1/models support).
     static func fetchModelsWithFallback(_ instance: ProviderInstance, forceRefresh: Bool = false) async throws -> ModelFetchResult {
+        // This dedicated speech host has no OpenAI /models endpoint. Keep this
+        // exact-host exception narrow: mixed chat/voice vendors still discover
+        // their real chat models. A catalogue is not a credential check.
+        if instance.providerType == .openAI, instance.credentialType == .apiKey,
+           let base = instance.effectiveCustomBaseURL,
+           URL(string: base)?.host?.lowercased() == "openspeech.bytedance.com",
+           let template = VoiceProviderTemplate.template(forBaseURL: base), template.id == "doubao" {
+            return ModelFetchResult(models: template.mockModels, source: "voice-catalog", warnings: [])
+        }
         // Codex has its own account-scoped discovery endpoint (not /v1/models).
         if instance.providerType == .openAI, instance.credentialType == .oauth,
            ProviderKeychainHelper.loadOAuthString(instanceId: instance.id, account: "manual-oauth-token") == nil {

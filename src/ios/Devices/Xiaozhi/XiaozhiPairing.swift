@@ -1,10 +1,18 @@
 import Foundation
 import Security
+import CryptoKit
 
 struct XiaozhiPairing: Codable {
     var setupToken: String
     var deviceToken: String
     var deviceID: String?
+    var clientID: String?
+
+    /// Public discovery identity; never advertise the pairing credential itself.
+    var discoveryName: String {
+        "openminis-" + SHA256.hash(data: Data(setupToken.utf8)).prefix(8)
+            .map { String(format: "%02x", $0) }.joined()
+    }
 
     static func fresh() throws -> Self {
         func random() throws -> String {
@@ -19,7 +27,7 @@ struct XiaozhiPairing: Codable {
 }
 
 /// Device credentials never enter the model/provider configuration or iCloud.
-/// The lock also serializes first-device binding with WebSocket authentication.
+/// Existing Keychain data is retained so the Bluetooth upgrade keeps pairing.
 final class XiaozhiPairingStore: @unchecked Sendable {
     private let lock = NSLock()
     private var pairing: XiaozhiPairing
@@ -33,31 +41,14 @@ final class XiaozhiPairingStore: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }; return pairing
     }
 
-    func bind(deviceID: String, setupToken: String) throws -> Bool {
+    /// Only learn the original board UUID through the authenticated BLE link.
+    /// It identifies the existing console binding; never invent a new device.
+    func rememberClientID(_ clientID: String, deviceID: String) throws {
+        guard UUID(uuidString: clientID) != nil else { return }
         lock.lock(); defer { lock.unlock() }
-        guard XiaozhiProtocol.equalSecret(setupToken, pairing.setupToken),
-              XiaozhiProtocol.deviceID(deviceID) != nil,
-              pairing.deviceID == nil || pairing.deviceID == deviceID else { return false }
-        if pairing.deviceID == nil {
-            var updated = pairing; updated.deviceID = deviceID
-            try save(updated)
-            pairing = updated
-        }
-        return true
-    }
-
-    func authenticates(_ headers: [(name: String, value: String)]) -> Bool {
-        var values: [String: String] = [:]
-        for header in headers {
-            let name = header.name.lowercased()
-            guard values[name] == nil else { return false }
-            values[name] = header.value
-        }
-        let current = snapshot
-        return current.deviceID != nil
-            && XiaozhiProtocol.deviceID(values["device-id"]) == current.deviceID
-            && values["protocol-version"] == "1"
-            && XiaozhiProtocol.equalSecret(values["authorization"] ?? "", "Bearer " + current.deviceToken)
+        guard pairing.deviceID == deviceID, pairing.clientID != clientID else { return }
+        var updated = pairing; updated.clientID = clientID
+        try save(updated); pairing = updated
     }
 
     static func load() throws -> XiaozhiPairingStore {
@@ -67,7 +58,7 @@ final class XiaozhiPairingStore: @unchecked Sendable {
         func save(_ pairing: XiaozhiPairing) throws {
             let data = try JSONEncoder().encode(pairing)
             let attributes: [String: Any] = [kSecValueData as String: data,
-                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
             var result = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
             if result == errSecItemNotFound {
                 result = SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil)
@@ -86,15 +77,13 @@ final class XiaozhiPairingStore: @unchecked Sendable {
             guard pairing.setupToken.count == 48, pairing.deviceToken.count == 48 else {
                 throw XiaozhiError.message("设备配对信息损坏")
             }
+            // Accessory restoration can occur with the screen locked. App and
+            // conversation locks remain enforced before processing any speech.
+            try save(pairing)
         } else {
             throw XiaozhiError.message("请解锁手机后重新开启设备连接")
         }
         return Self(pairing: pairing, save: save)
     }
 
-    func reset() throws {
-        lock.lock(); defer { lock.unlock() }
-        let replacement = try XiaozhiPairing.fresh()
-        try save(replacement); pairing = replacement
-    }
 }

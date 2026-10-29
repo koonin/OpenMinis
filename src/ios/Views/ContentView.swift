@@ -2440,7 +2440,7 @@ struct ContentView: View {
                         SyncCore.shared.isAppInBackground = false
                     }
                     #if DEBUG
-                    UIApplication.shared.isIdleTimerDisabled = keepScreenAwake || XiaozhiDeviceService.shared.isRunning
+                    UIApplication.shared.isIdleTimerDisabled = keepScreenAwake || XiaozhiDeviceService.shared.keepsScreenAwake
                     #endif
                     // [T-home-fab-keyboard-inset] Defense-in-depth behind the
                     // structural .ignoresSafeArea immunity on the session lists:
@@ -3974,7 +3974,7 @@ struct ContentView: View {
                     // state. Memory-only (not persisted). DEBUG builds only.
                     Button {
                         keepScreenAwake.toggle()
-                        UIApplication.shared.isIdleTimerDisabled = keepScreenAwake || XiaozhiDeviceService.shared.isRunning
+                        UIApplication.shared.isIdleTimerDisabled = keepScreenAwake || XiaozhiDeviceService.shared.keepsScreenAwake
                     } label: {
                         Label("Keep Screen Awake", systemImage: keepScreenAwake ? "checkmark.circle.fill" : "sun.max")
                     }

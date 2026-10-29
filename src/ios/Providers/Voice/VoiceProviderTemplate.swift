@@ -205,27 +205,9 @@ struct VoiceProviderTemplate: Identifiable {
             mockModels: [
                 LLMModel(id: "bigmodel", displayName: "Doubao ASR (bigmodel)",
                          provider: "doubao", modalityOverride: .audioInput),
-
-                // Seed TTS 2.0 (big model, uranus)
-                LLMModel(id: "zh_female_cancan_uranus_bigtts", displayName: "灿灿 (通用, 女)",
-                         provider: "doubao", modalityOverride: .audioOutput),
-                LLMModel(id: "zh_female_vv_uranus_bigtts", displayName: "Vivi (表现力, 女)",
-                         provider: "doubao", modalityOverride: .audioOutput),
-                LLMModel(id: "zh_male_liufei_uranus_bigtts", displayName: "刘飞 (通用, 男)",
-                         provider: "doubao", modalityOverride: .audioOutput),
-                LLMModel(id: "zh_male_m191_uranus_bigtts", displayName: "云舟 (清爽, 男)",
-                         provider: "doubao", modalityOverride: .audioOutput),
-
-                // Seed TTS 1.0 (big model, moon)
-                LLMModel(id: "zh_female_shuangkuaisisi_moon_bigtts", displayName: "爽快思思 (爽朗, 女)",
-                         provider: "doubao", modalityOverride: .audioOutput),
-                LLMModel(id: "zh_female_sajiaonvyou_moon_bigtts", displayName: "撒娇女友 (撒娇, 女)",
-                         provider: "doubao", modalityOverride: .audioOutput),
-                LLMModel(id: "zh_female_gaolengyujie_moon_bigtts", displayName: "高冷御姐 (御姐, 女)",
-                         provider: "doubao", modalityOverride: .audioOutput),
-                LLMModel(id: "multi_female_shuangkuaisisi_moon_bigtts", displayName: "爽快思思 (多语, 女)",
-                         provider: "doubao", modalityOverride: .audioOutput),
-            ],
+            ] + DoubaoVoiceCatalog.voices.map {
+                LLMModel(id: $0.id, displayName: $0.name, provider: "doubao", modalityOverride: .audioOutput)
+            },
             symbol: "mic.and.signal.meter",
             tint: .blue,
             note: AppLocalized("Enter the API Key from the Volcano Engine new console.", comment: "Voice provider credential note")
