@@ -22,7 +22,10 @@ struct XiaozhiReplyTiming {
 /// never floods the device's bounded decode queue.
 struct XiaozhiPlaybackClock {
     static let frame: TimeInterval = 0.060
-    static let prefill = 4
+    // 480 ms of encoded audio, below the device's 1200 ms decode queue.
+    // The first packet still plays immediately; the following packets build
+    // a reserve against BLE scheduling jitter without increasing first sound.
+    static let prefill = 8
     private var anchor: TimeInterval
 
     init(now: TimeInterval) { anchor = now }

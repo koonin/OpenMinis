@@ -69,6 +69,44 @@ struct XiaozhiVolcanoTests {
         var decoded = Data()
         for packet in packets { decoded.append(try decoder.decode(packet)) }
         check(decoded.count == packets.count * 1920, "every streamed packet decodes to 60 ms at 16 kHz")
+        // Prefetch a full story while the BLE consumer deliberately waits.
+        var produced = false, played = 0
+        let buffered = Task { @MainActor in
+            try await XiaozhiBufferedSpeech.play(produce: { emit in
+                for index in 0..<1200 { try await emit(Data([UInt8(index % 256)])) }
+                produced = true
+            }, consume: { packet in
+                if played == 0 {
+                    while !produced { try Task.checkCancellation(); await Task.yield() }
+                }
+                check(packet == Data([UInt8(played % 256)]), "story packet order preserved")
+                played += 1
+            })
+        }
+        let watchdog = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if !Task.isCancelled { buffered.cancel() }
+        }
+        try await buffered.value
+        watchdog.cancel()
+        check(produced && played == 1200, "72 seconds prefetched independently of playback")
+        var producerCancelled = false
+        do {
+            try await XiaozhiBufferedSpeech.play(produce: { emit in
+                try await emit(Data([1]))
+                do { try await Task.sleep(nanoseconds: 30_000_000_000) }
+                catch { producerCancelled = true; throw error }
+            }, consume: { _ in throw CancellationError() })
+            preconditionFailure("consumer cancellation swallowed")
+        } catch is CancellationError {
+            check(producerCancelled, "interruption cancels and joins cloud producer")
+        }
+        do {
+            try await XiaozhiBufferedSpeech.play(produce: { emit in
+                for _ in 0..<(XiaozhiBufferedSpeech.maxPackets + 2) { try await emit(Data([1])) }
+            }, consume: { _ in try await Task.sleep(nanoseconds: 1_000) })
+            preconditionFailure("buffer overflow silently dropped audio")
+        } catch { checks += 1 }
         do { _ = try await encoder.finish(); preconditionFailure("tail flushed twice") } catch { checks += 1 }
         do { _ = try await encoder.append(Data([0, 0])); preconditionFailure("audio after finish") } catch { checks += 1 }
         let truncated = XiaozhiStreamingEncoder()

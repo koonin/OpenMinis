@@ -75,7 +75,7 @@ final class XiaozhiVolcanoSpeech {
         session?.invalidateAndCancel()
     }
 
-    func stream(_ request: URLRequest, onPCM: @escaping (Data) async throws -> Void) async throws {
+    func stream(_ request: URLRequest, onPCM: @escaping @MainActor @Sendable (Data) async throws -> Void) async throws {
         guard work == nil else { throw XiaozhiError.message("火山正在生成上一段声音，请稍后再试") }
         guard request.url?.scheme == "https", request.url?.host == "openspeech.bytedance.com",
               request.url?.path == "/api/v3/tts/unidirectional" else {
@@ -86,7 +86,9 @@ final class XiaozhiVolcanoSpeech {
         config.timeoutIntervalForRequest = 15; config.timeoutIntervalForResource = 75
         let session = URLSession(configuration: config, delegate: XiaozhiVolcanoNoRedirect(), delegateQueue: nil)
         self.session = session
-        let work = Task {
+        // Parsing a large base64 line byte by byte on the main actor can block
+        // Core Bluetooth's send callbacks. Only completed PCM chunks hop back.
+        let work = Task.detached(priority: .userInitiated) {
             let (bytes, response) = try await session.bytes(for: request)
             guard let http = response as? HTTPURLResponse else { throw XiaozhiError.message("火山语音响应无效") }
             guard http.statusCode == 200 else {
@@ -120,6 +122,55 @@ final class XiaozhiVolcanoSpeech {
         } catch is CancellationError { throw CancellationError() }
         catch let error as XiaozhiError { throw error }
         catch { throw XiaozhiError.message("火山语音连接中断或超时，原回复已保留；本轮没有重发") }
+    }
+}
+
+/// Let cloud reception/encoding run ahead of the real-time BLE sender. Keeping
+/// them in one awaited callback starves playback at every large cloud chunk.
+/// The existing 90-second encoder limit is <= 1502 packets; at most ~1.9 MiB is
+/// retained on the phone, never on the ESP32. Overflow fails instead of dropping.
+@MainActor
+enum XiaozhiBufferedSpeech {
+    static let maxPackets = 1502
+
+    static func play(
+        produce: @escaping @MainActor (@escaping @MainActor (Data) async throws -> Void) async throws -> Void,
+        consume: @escaping @MainActor (Data) async throws -> Void
+    ) async throws {
+        let (packets, continuation) = AsyncThrowingStream<Data, Error>.makeStream(
+            bufferingPolicy: .bufferingOldest(maxPackets))
+        let producer = Task {
+            do {
+                try await produce { packet in
+                    try Task.checkCancellation()
+                    guard !packet.isEmpty, packet.count <= 1275 else {
+                        throw XiaozhiError.message("声音帧大小无效")
+                    }
+                    switch continuation.yield(packet) {
+                    case .enqueued: break
+                    case .dropped: throw XiaozhiError.message("声音缓冲已满，本轮已停止")
+                    case .terminated: throw CancellationError()
+                    @unknown default: throw CancellationError()
+                    }
+                }
+                continuation.finish()
+            } catch { continuation.finish(throwing: error) }
+        }
+        continuation.onTermination = { @Sendable _ in producer.cancel() }
+        defer { producer.cancel() }
+        do {
+            for try await packet in packets {
+                try Task.checkCancellation()
+                try await consume(packet)
+            }
+            try Task.checkCancellation()
+        } catch {
+            producer.cancel()
+            // Release the shared cloud client before the next explicit turn.
+            await producer.value
+            throw error
+        }
+        await producer.value
     }
 }
 

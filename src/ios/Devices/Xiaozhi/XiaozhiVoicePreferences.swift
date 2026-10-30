@@ -92,17 +92,20 @@ final class XiaozhiVoicePreferences: ObservableObject {
         }
         let (provider, request) = try output(text)
         guard let volcano = provider as? DoubaoVoiceProvider else { return false }
-        let encoder = XiaozhiStreamingEncoder()
-        try await XiaozhiVolcanoSpeech.shared.stream(volcano.buildPCMStreamRequest(request)) { pcm in
-            for packet in try await encoder.append(pcm) {
-                try Task.checkCancellation()
-                try await onPacket(packet)
+        let cloudRequest = try volcano.buildPCMStreamRequest(request)
+        try await XiaozhiBufferedSpeech.play(produce: { emit in
+            let encoder = XiaozhiStreamingEncoder()
+            try await XiaozhiVolcanoSpeech.shared.stream(cloudRequest) { pcm in
+                for packet in try await encoder.append(pcm) {
+                    try Task.checkCancellation()
+                    try await emit(packet)
+                }
             }
-        }
-        for packet in try await encoder.finish() {
-            try Task.checkCancellation()
-            try await onPacket(packet)
-        }
+            for packet in try await encoder.finish() {
+                try Task.checkCancellation()
+                try await emit(packet)
+            }
+        }, consume: onPacket)
         return true
     }
 
