@@ -72,9 +72,9 @@ final class XiaozhiVoicePreferences: ObservableObject {
         return String(DoubaoVoiceProvider.synthesisResourceID(for: entry.model.id).dropFirst("seed-tts-".count))
     }
 
-    func synthesize(_ text: String) async throws -> Data {
-        if selection == "xiaozhi-console" { return try await XiaozhiConsoleRelay.shared.synthesize(text) }
-        let (provider, request) = try output(text)
+    func synthesize(_ text: String, selectionOverride: String? = nil, speedOverride: Double? = nil) async throws -> Data {
+        if (selectionOverride ?? selection) == "xiaozhi-console" { return try await XiaozhiConsoleRelay.shared.synthesize(text) }
+        let (provider, request) = try output(text, selectionOverride: selectionOverride, speedOverride: speedOverride)
         if let volcano = provider as? DoubaoVoiceProvider {
             var pcm = Data()
             try await XiaozhiVolcanoSpeech.shared.stream(volcano.buildPCMStreamRequest(request)) { pcm.append($0) }
@@ -85,12 +85,13 @@ final class XiaozhiVoicePreferences: ObservableObject {
 
     /// Returns false only for providers which still need whole-file synthesis.
     /// Streaming failures are thrown, never retried as a second paid request.
-    func stream(_ text: String, onPacket: @escaping (Data) async throws -> Void) async throws -> Bool {
-        if selection == "xiaozhi-console" {
+    func stream(_ text: String, selectionOverride: String? = nil, speedOverride: Double? = nil,
+                onPacket: @escaping (Data) async throws -> Void) async throws -> Bool {
+        if (selectionOverride ?? selection) == "xiaozhi-console" {
             try await XiaozhiConsoleRelay.shared.stream(text, onPacket: onPacket)
             return true
         }
-        let (provider, request) = try output(text)
+        let (provider, request) = try output(text, selectionOverride: selectionOverride, speedOverride: speedOverride)
         guard let volcano = provider as? DoubaoVoiceProvider else { return false }
         let cloudRequest = try volcano.buildPCMStreamRequest(request)
         try await XiaozhiBufferedSpeech.play(produce: { emit in
@@ -114,7 +115,10 @@ final class XiaozhiVoicePreferences: ObservableObject {
         XiaozhiVolcanoSpeech.shared.cancel()
     }
 
-    private func output(_ text: String) throws -> (any VoiceOutputCapable, VoiceOutputRequest) {
+    private func output(_ text: String, selectionOverride: String? = nil,
+                        speedOverride: Double? = nil) throws -> (any VoiceOutputCapable, VoiceOutputRequest) {
+        let selection = selectionOverride ?? self.selection
+        let speed = speedOverride ?? self.speed
         guard !text.isEmpty, text.count <= 500 else { throw XiaozhiError.message("待朗读内容为空或过长") }
         let provider: any VoiceOutputCapable
         var entry: ModelEntry?

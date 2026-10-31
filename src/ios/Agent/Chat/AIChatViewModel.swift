@@ -2148,6 +2148,21 @@ final class AIChatViewModel: ObservableObject, SpeechControlling {
     /// The reply is synthesized for the device without also speaking on iPhone.
     var routesReplyToDevice = false
 
+    /// Scoped to the exact user turn; queued phone prompts are never read to
+    /// the accessory. Delivery is independent of UI refresh/background throttles.
+    var deviceReplyTextSink: (userID: UUID, receive: (XiaozhiReplyTextUpdate) -> Void)?
+
+    func emitDeviceReplyText(_ text: String, messageIndex: Int, blockIndex: Int?, complete: Bool) {
+        guard routesReplyToDevice, let sink = deviceReplyTextSink,
+              messages.indices.contains(messageIndex), let blockIndex,
+              messages[messageIndex].blocks.indices.contains(blockIndex),
+              messages[messageIndex].role == .assistant,
+              messages[messageIndex].blocks[blockIndex].kind == .text,
+              messages[..<messageIndex].last(where: { $0.role == .user })?.id == sink.userID else { return }
+        sink.receive(XiaozhiReplyTextUpdate(blockID: messages[messageIndex].blocks[blockIndex].id,
+                                           text: text, complete: complete))
+    }
+
     private var canSpeakNow: Bool {
         // Enabled AND not muted AND not capturing. `canPlay` folds in the temporary
         // mute (capsule speaker) on top of the full on/off `isEnabled`.

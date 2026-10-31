@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CCEB104F35994CCF8BE7BB5E /* XiaozhiReplyStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EAB4E31A88B407BBA59AFC1 /* XiaozhiReplyStream.swift */; };
 		BCDE2F79904244E4BF7C4868 /* SoulRoleTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DE470BB8B44433EA710AE0E /* SoulRoleTemplate.swift */; };
 		1BDD23C9043F4215BD389F10 /* SoulRoleTemplatesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DEED683EC854DD6999E649E /* SoulRoleTemplatesView.swift */; };
 		E35A490045434A7BAC959E86 /* XiaozhiVoicePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CC63D73810A402A8A6443DC /* XiaozhiVoicePicker.swift */; };
@@ -664,6 +665,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1EAB4E31A88B407BBA59AFC1 /* XiaozhiReplyStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiReplyStream.swift; sourceTree = "<group>"; };
 		2DE470BB8B44433EA710AE0E /* SoulRoleTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulRoleTemplate.swift; sourceTree = "<group>"; };
 		6DEED683EC854DD6999E649E /* SoulRoleTemplatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulRoleTemplatesView.swift; sourceTree = "<group>"; };
 		5CC63D73810A402A8A6443DC /* XiaozhiVoicePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XiaozhiVoicePicker.swift; sourceTree = "<group>"; };
@@ -1528,6 +1530,7 @@
 				A68BA0B5277D62904C7DEF7B /* XiaozhiDeviceSettingsView.swift */,
 				A75382DD9A263D1BD3BB0D4E /* XiaozhiBluetoothProtocol.swift */,
 				ABF11894C4C405FABFDBDE29 /* XiaozhiPairing.swift */,
+				1EAB4E31A88B407BBA59AFC1 /* XiaozhiReplyStream.swift */,
 				AC62DE34C0414E83359FE271 /* XiaozhiProtocol.swift */,
 				9E1FAC9BB4F2124F0D3B3ECE /* XiaozhiVoicePreferences.swift */,
 				5CC63D73810A402A8A6443DC /* XiaozhiVoicePicker.swift */,
@@ -3009,6 +3012,7 @@
 				20EE8471F66C5A8B695E5BB8 /* XiaozhiDeviceSettingsView.swift in Sources */,
 				DF5F017548B81B50D79F1DE1 /* XiaozhiBluetoothProtocol.swift in Sources */,
 				D3E09AA3FBBFEC52A595E3F8 /* XiaozhiPairing.swift in Sources */,
+				CCEB104F35994CCF8BE7BB5E /* XiaozhiReplyStream.swift in Sources */,
 				05C42C045B7ABCECC4CC1F58 /* XiaozhiProtocol.swift in Sources */,
 				B201BCE73DFF60F6DE022405 /* XiaozhiVoicePreferences.swift in Sources */,
 				E35A490045434A7BAC959E86 /* XiaozhiVoicePicker.swift in Sources */,

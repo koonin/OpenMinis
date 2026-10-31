@@ -196,6 +196,9 @@ final class BrowserTabPool: ObservableObject {
     /// retain the existing 300-second recovery window; delegated workers set a
     /// shorter budget so one wedged page cannot consume their whole run.
     var perActionDeadTimeout: TimeInterval?
+    /// A voice turn can shorten page-load waits without declaring a healthy
+    /// slow tab dead or changing ordinary chat/browser actions.
+    var navigationWaitLimitProvider: (() -> TimeInterval?)?
 
     #if DEBUG
     /// Debug-only weak reference for the debug server to access the active pool.
@@ -1065,6 +1068,9 @@ final class BrowserTabPool: ObservableObject {
         // Capture the manager reference before await — the tabs array may mutate
         // (e.g. closeTab / idle reclaim / registry preempt) while we're suspended.
         let manager = tabs[liveIdx].manager
+        let previousNavigationWait = manager.navigationWaitLimit
+        manager.navigationWaitLimit = navigationWaitLimitProvider?()
+        defer { manager.navigationWaitLimit = previousNavigationWait }
         let managerStart = CFAbsoluteTimeGetCurrent()
         logger.info("[PoolTiming] manager_execute_start elapsed=\(Int((managerStart - poolStart) * 1000))ms tab=\(targetId) action=\(input.action.rawValue)")
         let result: BrowserActionResult

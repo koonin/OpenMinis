@@ -13,6 +13,7 @@ struct XiaozhiReplyTiming {
     var model: TimeInterval = 0
     var voice: TimeInterval = 0
     var preparation: TimeInterval = 0
+    var answerReady: TimeInterval?
     var modelName = ""
     var total: TimeInterval { recognition + model + voice + preparation }
 }

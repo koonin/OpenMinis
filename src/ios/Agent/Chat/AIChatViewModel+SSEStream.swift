@@ -276,6 +276,7 @@ extension AIChatViewModel {
         var currentTextBlockIdx: Int? = nil
         var currentThinkingBlockIdx: Int? = nil
         let speakEnabled = await MainActor.run { self.speakEnabled }
+        let streamsToDevice = await MainActor.run { self.routesReplyToDevice && self.deviceReplyTextSink != nil }
         await MainActor.run { VoiceLog.log("stream start: speakEnabled snapshot=\(self.speakEnabled)") }
 
         // Throttle timestamps (local to this stream processing call)
@@ -535,6 +536,12 @@ extension AIChatViewModel {
             case .textDelta(let text):
                 if let blockIdx = currentTextBlockIdx {
                     result.assistantText += text
+                    if streamsToDevice {
+                        let deviceText = result.assistantText
+                        await MainActor.run {
+                            self.emitDeviceReplyText(deviceText, messageIndex: msgIdx, blockIndex: blockIdx, complete: false)
+                        }
+                    }
 
                     // Streaming TTS: speak completed sentences as they arrive. Don't
                     // gate on the start-time `speakEnabled` snapshot — read it live
@@ -898,6 +905,11 @@ extension AIChatViewModel {
                 }
 
                 // Reset text block tracking for potential next text block after tool use
+                let deviceText = result.assistantText
+                let deviceBlock = currentTextBlockIdx
+                await MainActor.run {
+                    self.emitDeviceReplyText(deviceText, messageIndex: msgIdx, blockIndex: deviceBlock, complete: true)
+                }
                 currentTextBlockIdx = nil
                 result.assistantText = ""
                 result.spokenTextOffset = 0
@@ -1057,6 +1069,11 @@ extension AIChatViewModel {
             let buf = result.pendingSpeakBuffer
             result.pendingSpeakBuffer = ""
             _ = await MainActor.run { self.feedDynamicTTS(buf, force: true) }
+        }
+        let deviceText = result.assistantText
+        let deviceBlock = currentTextBlockIdx
+        await MainActor.run {
+            self.emitDeviceReplyText(deviceText, messageIndex: msgIdx, blockIndex: deviceBlock, complete: true)
         }
         return result
     }

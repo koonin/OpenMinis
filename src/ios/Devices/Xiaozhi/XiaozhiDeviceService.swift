@@ -30,6 +30,7 @@ final class XiaozhiDeviceService: ObservableObject {
     private var captureID: UUID?
     private var pendingListenMode: String?
     private var turnTask: Task<Void, Never>?
+    private var cancelReplyAudio: (() -> Void)?
     private var watchdog: Task<Void, Never>?
     private var lastAudioAt = Date()
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
@@ -165,6 +166,7 @@ final class XiaozhiDeviceService: ObservableObject {
     }
 
     private func clearConversation() {
+        cancelReplyAudio?()
         XiaozhiVoicePreferences.shared.cancelStreams()
         turnGeneration = UUID(); connectionID = nil; helloReceived = false
         capture?.cancel(); capture = nil; captureID = nil; pendingListenMode = nil
@@ -252,6 +254,7 @@ final class XiaozhiDeviceService: ObservableObject {
         }
         switch event["type"] as? String {
         case "abort":
+            cancelReplyAudio?()
             XiaozhiVoicePreferences.shared.cancelStreams()
             turnGeneration = UUID(); capture?.cancel(); capture = nil; captureID = nil
             pendingListenMode = nil
@@ -315,6 +318,7 @@ final class XiaozhiDeviceService: ObservableObject {
         let startedAt = ProcessInfo.processInfo.systemUptime
         var timing = XiaozhiReplyTiming()
         defer {
+            cancelReplyAudio = nil
             isBusy = false; turnTask = nil
             if UIApplication.shared.applicationState != .active {
                 closeConversation(id)
@@ -341,56 +345,113 @@ final class XiaozhiDeviceService: ObservableObject {
             lastTranscript = text
             try await send("stt", id: id, fields: ["text": text])
             status = "小冠正在回复"
-            let reply = try await agentReply(text, id: id, generation: generation)
-            guard current(id, generation) else { return }
-            let repliedAt = ProcessInfo.processInfo.systemUptime
-            timing.model = repliedAt - recognizedAt
-            if let sid = sessionID {
-                timing.modelName = ViewModelCache.shared.get(for: sid)?.resolveCurrentEntry()?.model.displayName ?? ""
+            let source = XiaozhiReplyStream()
+            cancelReplyAudio = { source.finish(throwing: CancellationError()) }
+            let voiceSelection = XiaozhiVoicePreferences.shared.selection
+            let voiceSpeed = XiaozhiVoicePreferences.shared.speed
+            var firstPacketSent = false
+            // The agent keeps its lease even if playback disconnects: already
+            // submitted tools must never be cancelled or resubmitted by BLE.
+            let replyTask = Task {
+                do {
+                    let reply = try await self.agentReply(text, id: id, generation: generation) { update in
+                        guard self.current(id, generation) else {
+                            source.finish(throwing: CancellationError()); return
+                        }
+                        source.receive(update)
+                    }
+                    source.finish(fallback: reply)
+                    if self.current(id, generation) {
+                        self.lastReply = reply
+                        timing.answerReady = ProcessInfo.processInfo.systemUptime - startedAt
+                        if firstPacketSent { self.lastReplyTiming = timing }
+                    }
+                } catch { source.finish(throwing: error) }
             }
-            lastReply = reply
-            let spoken = VoiceTextSanitizer.sanitize(String(reply.prefix(500)))
-            guard !spoken.isEmpty else { throw XiaozhiError.message("回复没有可朗读的文字，请在手机查看") }
-            status = "正在生成声音"
+            var textReadyAt: TimeInterval?
             var firstAudioAt: TimeInterval?
             var clock: XiaozhiPlaybackClock?
             var packetCount = 0
-            func play(_ packet: Data) async throws {
+            var producedPackets = 0
+            var captions: [Int: String] = [:]
+            @MainActor func play(_ packet: Data) async throws {
                 guard self.current(id, generation) else { throw CancellationError() }
-                if packetCount == 0 {
-                    if firstAudioAt == nil {
-                        firstAudioAt = ProcessInfo.processInfo.systemUptime
-                        timing.voice = firstAudioAt! - repliedAt
+                if let caption = captions.removeValue(forKey: packetCount) {
+                    if packetCount == 0 {
+                        try await self.send("llm", id: id, fields: ["emotion": "neutral"])
                     }
-                    try await self.send("llm", id: id, fields: ["emotion": "neutral"])
-                    try await self.send("tts", id: id, fields: ["state": "sentence_start", "text": spoken])
+                    try await self.send("tts", id: id, fields: ["state": "sentence_start", "text": caption])
                     self.status = "小智正在播放"
-                    try await Task.sleep(nanoseconds: 80_000_000)
-                    clock = XiaozhiPlaybackClock(now: ProcessInfo.processInfo.systemUptime)
+                    if packetCount == 0 {
+                        try await Task.sleep(nanoseconds: 80_000_000)
+                        clock = XiaozhiPlaybackClock(now: ProcessInfo.processInfo.systemUptime)
+                    }
                 }
+                guard clock != nil else { throw XiaozhiError.message("声音缺少对应文字") }
                 let deadline = clock!.deadline(for: packetCount, now: ProcessInfo.processInfo.systemUptime)
                 let delay = deadline - ProcessInfo.processInfo.systemUptime
                 if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
                 guard self.current(id, generation) else { throw CancellationError() }
                 try await self.bluetooth.send(packet, binary: true)
                 if packetCount == 0 {
+                    firstPacketSent = true
                     timing.preparation = ProcessInfo.processInfo.systemUptime - firstAudioAt!
                     self.lastReplyTiming = timing
                 }
                 packetCount += 1
             }
-            let streamed = try await XiaozhiVoicePreferences.shared.stream(spoken, onPacket: play)
-            if !streamed {
-                let audio = try await XiaozhiVoicePreferences.shared.synthesize(spoken)
-                guard current(id, generation) else { return }
-                firstAudioAt = ProcessInfo.processInfo.systemUptime
-                timing.voice = firstAudioAt! - repliedAt
-                let packets = try await Task.detached(priority: .userInitiated) {
-                    let pcm = try XiaozhiAudioCodec.pcmFromAudio(audio)
-                    return try XiaozhiAudioCodec().encode(pcm)
-                }.value
-                for packet in packets { try await play(packet) }
+            do {
+                // Synthesis for later batches runs ahead while BLE plays the
+                // earlier batch. Never wait for playback before requesting it.
+                try await XiaozhiBufferedSpeech.play(produce: { emit in
+                    for try await spoken in source.text {
+                        guard self.current(id, generation) else { throw CancellationError() }
+                        if textReadyAt == nil {
+                            textReadyAt = ProcessInfo.processInfo.systemUptime
+                            timing.model = textReadyAt! - recognizedAt
+                            if let sid = self.sessionID {
+                                timing.modelName = ViewModelCache.shared.get(for: sid)?.resolveCurrentEntry()?.model.displayName ?? ""
+                            }
+                            self.status = "正在生成声音"
+                        }
+                        var firstInBatch = true
+                        @MainActor func receive(_ packet: Data) async throws {
+                            guard self.current(id, generation) else { throw CancellationError() }
+                            guard producedPackets < XiaozhiBufferedSpeech.maxPackets else {
+                                throw XiaozhiError.message("本轮语音较长，请在手机查看剩余内容")
+                            }
+                            if firstInBatch {
+                                firstInBatch = false
+                                captions[producedPackets] = spoken
+                            }
+                            if firstAudioAt == nil {
+                                firstAudioAt = ProcessInfo.processInfo.systemUptime
+                                timing.voice = firstAudioAt! - textReadyAt!
+                            }
+                            producedPackets += 1
+                            try await emit(packet)
+                        }
+                        let streamed = try await XiaozhiVoicePreferences.shared.stream(spoken,
+                            selectionOverride: voiceSelection, speedOverride: voiceSpeed, onPacket: receive)
+                        if !streamed {
+                            let audio = try await XiaozhiVoicePreferences.shared.synthesize(spoken,
+                                selectionOverride: voiceSelection, speedOverride: voiceSpeed)
+                            let packets = try await Task.detached(priority: .userInitiated) {
+                                let pcm = try XiaozhiAudioCodec.pcmFromAudio(audio)
+                                return try XiaozhiAudioCodec().encode(pcm)
+                            }.value
+                            for packet in packets { try await receive(packet) }
+                        }
+                        guard !firstInBatch else { throw XiaozhiError.message("回复没有可播放的音频") }
+                    }
+                }, consume: play)
+            } catch {
+                source.finish(throwing: error)
+                if current(id, generation) { fail(error.localizedDescription, id: id) }
+                await replyTask.value
+                throw error
             }
+            await replyTask.value
             guard let clock, packetCount > 0 else { throw XiaozhiError.message("回复没有可播放的音频") }
             let drain = clock.drainDeadline(packetCount: packetCount) - ProcessInfo.processInfo.systemUptime
             if drain > 0 { try await Task.sleep(nanoseconds: UInt64(drain * 1_000_000_000)) }
@@ -406,7 +467,8 @@ final class XiaozhiDeviceService: ObservableObject {
         }
     }
 
-    private func agentReply(_ text: String, id: UUID, generation: UUID) async throws -> String {
+    private func agentReply(_ text: String, id: UUID, generation: UUID,
+                            onText: @escaping (XiaozhiReplyTextUpdate) -> Void) async throws -> String {
         let vm: AIChatViewModel
         if let sessionID {
             guard await ChatStore.shared.getSession(sessionID) != nil else {
@@ -434,9 +496,14 @@ final class XiaozhiDeviceService: ObservableObject {
         }
         let oldMessageIDs = Set(vm.messages.map(\.id))
         vm.routesReplyToDevice = true
-        defer { vm.routesReplyToDevice = false }
+        defer { vm.routesReplyToDevice = false; vm.deviceReplyTextSink = nil }
         let outcome = vm.submitProgrammaticPrompt(
-            "这是小智设备的语音对话，请用简短自然的语言回答，适合朗读。用户说：\n" + text,
+            """
+            这是小智设备的实时语音对话。请用简短自然的口语回答，先说重点，通常两三句即可；用户要求故事或详细说明时再展开。不要使用代码块、表格或长链接。
+            能直接回答就直接回答。确实需要查询实时信息时，先简短说明你要查什么，再只查回答问题所必需的数据，优先一两个可靠来源。不要为了完整报告扩大检索，也不要在打不开的网页上反复重试；可以换一个来源，仍失败就如实说明，不能把猜测说成最新事实。普通出游建议可先给稳定的建议，再核实用户关心的具体活动或天气。仅用户明确要求深入调查时才做长流程。
+            用户说：
+            \(text)
+            """,
             origin: .device, silent: true)
         guard outcome == .sent else { throw XiaozhiError.message("小冠暂时无法接收，请在手机检查") }
         guard let userID = vm.messages.first(where: { $0.role == .user && !oldMessageIDs.contains($0.id) })?.id else {
@@ -444,6 +511,15 @@ final class XiaozhiDeviceService: ObservableObject {
             _ = await vm.awaitProgrammaticTurn(queuedPromptId: nil)
             throw XiaozhiError.message("无法确认本次回复归属，请在手机查看。请求没有重发。")
         }
+        vm.deviceReplyTextSink = (userID: userID, receive: onText)
+        let previousNavigationBudget = vm.browserTabPool.navigationWaitLimitProvider
+        vm.browserTabPool.navigationWaitLimitProvider = { [weak vm] in
+            guard let vm, vm.messages.last(where: { $0.role == .user })?.id == userID else {
+                return previousNavigationBudget?()
+            }
+            return 8
+        }
+        defer { vm.browserTabPool.navigationWaitLimitProvider = previousNavigationBudget }
         guard await vm.awaitProgrammaticTurn(queuedPromptId: nil), vm.errorMessage == nil else {
             throw XiaozhiError.message("小冠未完成回复，请在手机会话中查看")
         }

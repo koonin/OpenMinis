@@ -120,18 +120,19 @@ struct XiaozhiDeviceSettingsView: View {
             }
             Section {
                 if let timing = service.lastReplyTiming {
-                    LabeledContent("总计", value: seconds(timing.total))
+                    LabeledContent("首次出声等待", value: seconds(timing.total))
                     LabeledContent("语音识别", value: seconds(timing.recognition))
-                    LabeledContent("模型回复", value: seconds(timing.model))
+                    LabeledContent("首段回复", value: seconds(timing.model))
                     LabeledContent("生成声音", value: seconds(timing.voice))
                     LabeledContent("播放准备", value: seconds(timing.preparation))
+                    if let ready = timing.answerReady { LabeledContent("完整回复就绪", value: seconds(ready)) }
                     if !timing.modelName.isEmpty { LabeledContent("本轮模型", value: timing.modelName) }
                 } else {
                     Text("完成一轮对话后显示各阶段耗时")
                         .foregroundStyle(.secondary)
                 }
             } header: { Text("最近一次等待") }
-            footer: { Text("从结束收音算到发出首段音频，实际出声还会有少量播放缓冲。生成声音计至首段可播放音频；记录仅保留在本次打开期间。") }
+            footer: { Text("首次出声等待从结束收音算到发出首段音频，实际出声还会有少量播放缓冲。查询时可先播说明，完整结果仍需等待；完整回复就绪记录整轮处理完成的时间。记录仅保留在本次打开期间。") }
             .accessibilityIdentifier("xiaozhi.replyTiming")
             if !service.lastTranscript.isEmpty || !service.lastReply.isEmpty {
                 Section("最近一轮") {

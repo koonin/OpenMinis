@@ -95,6 +95,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
     private var inflightDownloads: [ObjectIdentifier: WKDownload] = [:]
 
     private static let navigationTimeout: TimeInterval = 30
+    var navigationWaitLimit: TimeInterval?
 
     /// [T-browser-executejs-unbounded-ios] GH#234. Wall-clock bound on a single
     /// `execute_js`. Deliberately BELOW BrowserTabPool.serialWaitTimeout (60s):
@@ -704,7 +705,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         }
     }
 
-    private func navigationMetadata() async -> String {
+    private func navigationMetadata(timeout: TimeInterval = 10) async -> String {
         let vp = currentViewport
         let url = webView.url?.absoluteString ?? currentURL
         let title = webView.title ?? pageTitle
@@ -719,7 +720,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         do {
             if let js = try await evaluateJavaScriptBounded(
                 "JSON.stringify({sx:window.scrollX,sy:window.scrollY,pw:document.documentElement.scrollWidth,ph:document.documentElement.scrollHeight})",
-                timeout: 10
+                timeout: timeout
             ) as? String,
                let data = js.data(using: .utf8),
                let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -752,6 +753,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
 
     private func navigate(to urlString: String?) async throws -> BrowserActionResult {
         let navStart = CFAbsoluteTimeGetCurrent()
+        let waitLimit = min(Self.navigationTimeout, max(1, navigationWaitLimit ?? Self.navigationTimeout))
 
         guard let urlString, !urlString.isEmpty else {
             return .error("Missing 'url' parameter")
@@ -781,7 +783,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
             CookieBackupStore.shared.noteVisit(url: url)
         }
 
-        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.navigationTimeout)
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: waitLimit)
         lastRequestedURL = url          // [T-ios-webview-error-ui]
         loadError = nil                 // clear any prior failure overlay
         webView.load(request)
@@ -804,7 +806,8 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // 30s nav bound overrun the pool's 60s serial wait and even the CLI's
         // 90s ceiling — reintroducing the pile-up this fix exists to prevent.
         let navTimer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        navTimer.schedule(deadline: .now() + Self.navigationTimeout)
+        defer { navTimer.cancel() }
+        navTimer.schedule(deadline: .now() + waitLimit)
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             self.navigationContinuation = continuation
@@ -820,7 +823,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
                         // leaves the wait: this WARN = timed out (didFinish/didFail
                         // never came — network stall or the load never completed);
                         // absence of it = the delegate fired normally.
-                        logger.warning("[NavTiming] navigate_TIMEOUT after \(Int(Self.navigationTimeout))s — no didFinish/didFail; url=\(url.absoluteString.prefix(80))")
+                        logger.warning("[NavTiming] navigate_TIMEOUT after \(Int(waitLimit))s — no didFinish/didFail; url=\(url.absoluteString.prefix(80))")
                     }
                 }
             }
@@ -835,7 +838,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         pageTitle = webView.title ?? ""
         isLoading = false
 
-        let meta = await navigationMetadata()
+        let meta = await navigationMetadata(timeout: navigationWaitLimit == nil ? 10 : 2)
         let totalMs = Int((CFAbsoluteTimeGetCurrent() - navStart) * 1000)
         logger.info("[NavTiming] total elapsed=\(totalMs)ms url=\(url.absoluteString.prefix(100))")
         // [T-browser-navigate-timeout-reports-success-ios] Report the timeout to
@@ -844,7 +847,7 @@ final class BrowserUseManager: NSObject, ObservableObject {
         // says the load did not complete, so a script can decide whether to
         // retry or re-read rather than silently operating on a stale DOM.
         if timedOut {
-            return BrowserActionResult(text: "Navigation did not complete within \(Int(Self.navigationTimeout))s — the page may be partially loaded or the renderer may be stalled. Content below reflects the current (possibly stale) state.\n\n\(meta)")
+            return BrowserActionResult(text: "Navigation did not complete within \(Int(waitLimit))s — the page may be partially loaded or the renderer may be stalled. Content below reflects the current (possibly stale) state.\n\n\(meta)")
         }
         return BrowserActionResult(text: meta)
     }
